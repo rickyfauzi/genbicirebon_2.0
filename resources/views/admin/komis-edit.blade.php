@@ -1,0 +1,42 @@
+@extends('layouts.master')
+
+@section('content')
+<div class="page-wrapper">
+    <div class="content container-fluid">
+        <div class="page-header">
+            <div class="row">
+                <div class="col-sm-12">
+                    <h3 class="page-title">Edit Komisariat</h3>
+                    <ul class="breadcrumb">
+                        <li class="breadcrumb-item active">Edit Komisariat</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-sm-12">
+                <div class="card">
+                    <div class="card-body">
+                        <form action="{{ route('admin.komisariat.update', $komisariat->id_komisariat) }}" method="POST" enctype="multipart/form-data">
+                            @csrf
+                            <div class="form-group">
+                                <label for="komisariat">Nama Komisariat</label>
+                                <input type="text" class="form-control" id="komisariat" name="komisariat" value="{{ old('komisariat', $komisariat->komisariat) }}" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="image">Gambar</label>
+                                <input type="file" class="form-control" id="image" name="image">
+                                @if($komisariat->image)
+                                <img src="{{ asset('storage/' . $komisariat->image) }}" alt="Gambar Komisariat" style="max-width: 200px; margin-top: 10px;">
+                                @endif
+                            </div>
+                            <button type="submit" class="btn btn-primary">Update</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endsection

@@ -1,0 +1,70 @@
+name: 🚀 Deploy Website
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: 🎉 Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🚚 Get Latest Code
+        uses: actions/checkout@v4
+
+      - name: 🔨 Install Dependencies
+        run: |
+          if git rev-parse HEAD^ > /dev/null 2>&1; then
+            git diff --name-only HEAD^ HEAD | grep -qE '(composer\.json|composer\.lock)' && composer install --no-dev --optimize-autoloader || echo "No dependencies updated"
+          else
+            echo "Initial commit detected. Skipping dependency installation."
+          fi
+
+      - name: 🔍 Find Changed Files
+        id: changes
+        run: |
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            git fetch --unshallow || true
+          fi
+          if git rev-parse HEAD^ > /dev/null 2>&1; then
+            git diff --name-only HEAD^ HEAD > changed_files.txt
+          else
+            echo "Initial commit detected. Including all files." > changed_files.txt
+            git ls-files >> changed_files.txt
+          fi
+          cat changed_files.txt
+
+      - name: 📂 Sync Files
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 21
+          local-dir: ./
+          server-dir: /public_html/
+          exclude: |
+            **/.env*
+            **/.git/**
+            **/storage/**
+            **/vendor/**
+            **/database/**
+            **/config/**
+            **/test/**
+            **/bootstrap/**
+            **/lang/**
+            **/app/console/**
+            **/app/exceptions/**
+            **/app/http/middleware/**
+            **/app/http/requests/**
+            **/app/http/kernel.php
+            **/app/notifications/**
+            **/app/policies/**
+            **/app/view/**
+            **/resources/css/**
+            **/resources/js/**
+            **/resources/views/components/**
+          dangerous-clean-slate: false
+          timeout: 12000
