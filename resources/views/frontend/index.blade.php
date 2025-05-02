@@ -30,7 +30,7 @@
                     <div class="col-lg-12">
                         <div class="ud-hero-content wow fadeInUp" data-wow-delay=".2s">
                             <h1 class="ud-hero-title">
-                                Selamat Datang di Website GenBI Cirebon, Portal Berita dan Sistem Absensi Terintegrasi
+                                Selamat hy Datang di Website GenBI Cirebon, Portal Berita dan Sistem Absensi Terintegrasi
                             </h1>
                             <p class="ud-hero-desc">
                                 <span id="typed-text-1">GenBI, Energi untuk Negeri </span><br>
