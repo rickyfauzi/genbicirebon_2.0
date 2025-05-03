@@ -49,6 +49,7 @@ jobs:
             **/.env*
             **/.git/**
             **/storage/**
+            **/public/**
             **/vendor/**
             **/database/**
             **/config/**
