@@ -44,12 +44,12 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           port: 21
           local-dir: ./
-          server-dir: public_html/
+          server-dir: /public_html/
           exclude: |
             **/.env*
             **/.git/**
             **/storage/**
-            **/public/**
+            
             **/vendor/**
              !**/public/assets2/images*
              !**/public/assets2/css*
