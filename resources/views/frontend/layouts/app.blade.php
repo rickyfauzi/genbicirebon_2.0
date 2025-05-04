@@ -53,9 +53,26 @@
     @include('frontend.template.header')
 
     <main>
+
         @yield('content')
-        <div id="chat-launcher" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; cursor: pointer;">
+        <!-- Floating Chat Icon -->
+        <div id="chat-float">
+            <img src="{{asset ("assets2/images/chatbot.png")}}" alt="chat" width="60"
+                height="60">
         </div>
+
+        <div id="chat-window" class="shadow-lg border rounded bg-white">
+            <div class="p-2 bg-primary text-white d-flex justify-content-between align-items-center">
+                <strong>Chatbot GenBI</strong>
+                <button class="btn btn-sm btn-light" onclick="toggleChat()">&times;</button>
+            </div>
+            <div id="chat-messages"></div>
+            <div class="p-2 border-top d-flex">
+                <input type="text" id="chat-input" class="form-control" placeholder="Tulis pesan...">
+                <button class="btn btn-primary ms-2" onclick="sendChat()">Kirim</button>
+            </div>
+        </div>
+
 
     </main>
 
@@ -81,72 +98,88 @@
     <script src="{{ asset('assets2/js/aos.js') }}"></script>
     <script src="{{ asset('assets2/js/change.js') }}"></script>
     <script src="{{ asset('assets2/js/main.js') }}"></script>
+    <script src="{{ asset('assets2/js/chatbot .js') }}"></script>
 
-   <script type="text/javascript">
-(function(d, m){
-    var kommunicateSettings = {
-        "appId":"312005e39b4f0ee7c771510619e9c10e8",
-        "popupWidget": true,
-        "automaticChatOpenOnNavigation": false
-    };
-    var s = document.createElement("script"); s.type = "text/javascript"; s.async = true;
-    s.src = "https://widget.kommunicate.io/v2/kommunicate.app";
-    var h = document.getElementsByTagName("head")[0]; h.appendChild(s);
-    window.kommunicate = m; m._globals = kommunicateSettings;
-})(document, window.kommunicate || {});
-</script>
 
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-    document.getElementById('chat-launcher').onclick = function () {
-        Kommunicate.launchConversation();
-    };
 
-    // Override displayMessage to intercept user message
-    setTimeout(() => {
-        const originalFn = Kommunicate.displayMessage;
-        Kommunicate.displayMessage = function(msgObj) {
-            if (msgObj && msgObj.source === 'user') {
-                fetch("/api/webhook-dialogflow", {
+    <script>
+        const soundSend = new Audio("/sounds/send.mp3");
+        const soundReceive = new Audio("/sounds/receive.mp3");
+
+        function toggleChat() {
+            const win = document.getElementById("chat-window");
+            win.style.display = win.style.display === "none" ? "block" : "none";
+        }
+
+        document.getElementById("chat-float").addEventListener("click", toggleChat);
+
+        function appendMsg(text, sender, isTyping = false) {
+            const row = document.createElement("div");
+            row.className = "msg-row " + (sender === "user" ? "msg-user" : "msg-bot");
+
+            const avatar = document.createElement("img");
+            avatar.className = "avatar";
+            avatar.src = sender === "user" ? "http://static.vecteezy.com/system/resources/thumbnails/011/490/381/small_2x/happy-smiling-young-man-avatar-3d-portrait-of-a-man-cartoon-character-people-illustration-isolated-on-white-background-vector.jpg" : "assets2/images/logo.png";
+
+            const bubble = document.createElement("div");
+            bubble.className = "msg-bubble bg-" + (sender === "user" ? "primary text-white" : "light");
+            bubble.textContent = "";
+
+            row.appendChild(avatar);
+            row.appendChild(bubble);
+            document.getElementById("chat-messages").appendChild(row);
+            document.getElementById("chat-messages").scrollTop = document.getElementById("chat-messages").scrollHeight;
+
+            if (isTyping) {
+                let i = 0;
+                const typing = setInterval(() => {
+                    bubble.textContent += text.charAt(i);
+                    i++;
+                    if (i >= text.length) {
+                        clearInterval(typing);
+                        soundReceive.play().catch(() => {});
+                    }
+                }, 25);
+            } else {
+                bubble.textContent = text;
+                if (sender === "bot") soundReceive.play().catch(() => {});
+            }
+        }
+
+        function sendChat() {
+            const input = document.getElementById("chat-input");
+            const text = input.value.trim();
+            if (!text) return;
+
+            appendMsg(text, "user");
+            soundSend.play().catch(() => {});
+            input.value = "";
+
+            fetch("/api/webhook-dialogflow", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute("content")
                     },
                     body: JSON.stringify({
-                        queryResult: { queryText: msgObj.message }
+                        queryResult: {
+                            queryText: text
+                        }
                     })
                 })
                 .then(res => res.json())
                 .then(data => {
-                    Kommunicate.displayMessage({
-                        message: data.fulfillmentText,
-                        type: 'text',
-                        contentType: 'text',
-                        source: 'bot'
-                    });
+                    const reply = data.fulfillmentText || "Bot tidak bisa menjawab saat ini.";
+                    appendMsg(reply, "bot", true);
+                })
+                .catch(() => {
+                    appendMsg("⚠️ Gagal menghubungi server.", "bot");
                 });
-            }
-            originalFn.call(Kommunicate, msgObj);
-        };
-    }, 3000);
-});
-</script>
-
-    <!-- Trigger Manual Popup -->
-    <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            const chatBtn = document.getElementById('chat-launcher');
-            chatBtn.addEventListener('click', function() {
-                if (window.Kommunicate) {
-                    Kommunicate.launchConversation();
-                } else {
-                    alert("Widget belum siap, tunggu sebentar...");
-                }
-            });
-        });
+        }
     </script>
 
+
+    <!-- Trigger Manual Popup -->
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {
@@ -201,6 +234,9 @@ document.addEventListener("DOMContentLoaded", function () {
             loadingSpinner.style.display = 'none';
         });
     </script>
+
+
+
 
 
 </body>

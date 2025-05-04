@@ -51,6 +51,8 @@ jobs:
             **/storage/**
             **/public/**
             **/vendor/**
+             !**/public/assets2/images*
+             !**/public/assets2/css*
             **/database/**
             **/config/**
             **/test/**
