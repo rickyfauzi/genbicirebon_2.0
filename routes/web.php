@@ -20,6 +20,9 @@ use App\Http\Controllers\ChatbotController;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Auth\Events\PasswordReset;
+use Kreait\Firebase\Factory;
+use App\Http\Controllers\WebhookController;
+
 // use Illuminate\Support\Facades\Request;
 /*
 |--------------------------------------------------------------------------
@@ -32,6 +35,8 @@ use Illuminate\Auth\Events\PasswordReset;
 |
 */
 
+Route::post('/webhook-dialogflow', [WebhookController::class, 'handle']);
+
 /** for side bar menu active */
 function set_active($route)
 {
@@ -40,6 +45,8 @@ function set_active($route)
     }
     return Request::path() == $route ? 'active' : '';
 }
+
+
 
 Route::get('/', [FrontendController::class, 'index'])->name('index');
 
@@ -195,7 +202,7 @@ Route::controller(AdminController::class)->group(function () {
     Route::post('admin/user-import', 'import')->middleware('auth')->name('admin/user-import');
     Route::get('admin/user-export', 'export')->middleware('auth')->name('admin/user-export'); //export
     Route::post('admin/import-anggota', 'pageImportAnggota')->middleware('auth')->name('admin/import-anggota');
-    
+
 
 
     //excel  anggota
@@ -236,17 +243,17 @@ Route::controller(AdminController::class)->group(function () {
     Route::post('admin/komisariat/update/{id}', 'updateKomisariat')->middleware('auth')->name('admin.komisariat.update');
     Route::delete('admin/komisariat/delete/{id}', 'deleteKomisariat')->middleware('auth')->name('admin.komisariat.delete');
     Route::delete('/admin/komis/delete/{id_komisariat}', 'deleteKomisariat')->middleware('auth')->name('admin.komisariat.delete');
-  Route::get('/admin/comment', 'indexComments')->name('admin.comment');
-Route::post('/admin/comments/{id}/approve', 'approveComment')->name('admin.comments.approve');
-Route::delete('/admin/comments/{id}', 'deleteComment')->name('admin.comments.delete');
-Route::post('/admin/comments/{id}/reject', 'reject')->name('admin.comments.reject');
+    Route::get('/admin/comment', 'indexComments')->name('admin.comment');
+    Route::post('/admin/comments/{id}/approve', 'approveComment')->name('admin.comments.approve');
+    Route::delete('/admin/comments/{id}', 'deleteComment')->name('admin.comments.delete');
+    Route::post('/admin/comments/{id}/reject', 'reject')->name('admin.comments.reject');
 
 
 
-//     Route::get('admin/comment', [AdminController::class, 'indexComments'])->name('admin.comment');
-// Route::post('/admin/comments/{id}/approve', [AdminController::class, 'approveComment'])->name('admin.comments.approve');
-// Route::delete('/admin/comments/{id}', [AdminController::class, 'deleteComment'])->name('admin.comments.delete');
+    //     Route::get('admin/comment', [AdminController::class, 'indexComments'])->name('admin.comment');
+    // Route::post('/admin/comments/{id}/approve', [AdminController::class, 'approveComment'])->name('admin.comments.approve');
+    // Route::delete('/admin/comments/{id}', [AdminController::class, 'deleteComment'])->name('admin.comments.delete');
 
-    
+
 
 });

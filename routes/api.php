@@ -3,7 +3,8 @@
 use App\Http\Controllers\Api\KataMutiaraController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\ChatbotController; 
+use App\Http\Controllers\ChatbotController;
+use App\Http\Controllers\WebhookController;
 
 /*
 |--------------------------------------------------------------------------
@@ -29,4 +30,5 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 
 Route::apiResource('katamutiara', KataMutiaraController::class);
 
-Route::post('/webhook-dialogflow', [ChatbotController::class, 'handle']);
+// Kalau pakai routes/api.php
+Route::post('/webhook-dialogflow', [WebhookController::class, 'handle']);

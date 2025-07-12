@@ -40,6 +40,47 @@
     <link rel="stylesheet" href="{{ asset('assets2/css/aos.css') }}" />
     <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/magnific-popup.js/1.1.0/magnific-popup.min.css" />
+
+    <style>
+        #chat-window {
+            position: fixed;
+            bottom: 90px;
+            right: 20px;
+            width: 300px;
+            max-height: 500px;
+            overflow-y: auto;
+            z-index: 9999;
+            display: none;
+            transition: all 0.3s ease-in-out;
+        }
+
+        .msg-row {
+            display: flex;
+            align-items: flex-start;
+            margin: 10px;
+        }
+
+        .msg-user {
+            justify-content: flex-end;
+        }
+
+        .msg-bot {
+            justify-content: flex-start;
+        }
+
+        .avatar {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .msg-bubble {
+            padding: 10px;
+            border-radius: 15px;
+            max-width: 70%;
+        }
+    </style>
 </head>
 
 <body>
@@ -57,8 +98,7 @@
         @yield('content')
         <!-- Floating Chat Icon -->
         <div id="chat-float">
-            <img src="{{asset ("assets2/images/chatbot.png")}}" alt="chat" width="60"
-                height="60">
+            <img src="{{ asset('assets2/images/chatbot.png') }}" alt="chat" width="60" height="60">
         </div>
 
         <div id="chat-window" class="shadow-lg border rounded bg-white">
@@ -119,7 +159,9 @@
 
             const avatar = document.createElement("img");
             avatar.className = "avatar";
-            avatar.src = sender === "user" ? "http://static.vecteezy.com/system/resources/thumbnails/011/490/381/small_2x/happy-smiling-young-man-avatar-3d-portrait-of-a-man-cartoon-character-people-illustration-isolated-on-white-background-vector.jpg" : "assets2/images/logo.png";
+            avatar.src = sender === "user" ?
+                "http://static.vecteezy.com/system/resources/thumbnails/011/490/381/small_2x/happy-smiling-young-man-avatar-3d-portrait-of-a-man-cartoon-character-people-illustration-isolated-on-white-background-vector.jpg" :
+                "assets2/images/logo.png";
 
             const bubble = document.createElement("div");
             bubble.className = "msg-bubble bg-" + (sender === "user" ? "primary text-white" : "light");
@@ -232,6 +274,13 @@
         document.addEventListener("DOMContentLoaded", function() {
             const loadingSpinner = document.getElementById('loading-spinner');
             loadingSpinner.style.display = 'none';
+        });
+
+        document.getElementById("chat-input").addEventListener("keydown", function(e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                sendChat();
+            }
         });
     </script>
 
