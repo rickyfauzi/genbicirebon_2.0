@@ -49,10 +49,7 @@ jobs:
             **/.env*
             **/.git/**
             **/storage/**
-
             **/vendor/**
-             !**/public/assets2/images*
-             !**/public/assets2/css*
             **/database/**
             **/config/**
             **/test/**
@@ -66,8 +63,8 @@ jobs:
             **/app/notifications/**
             **/app/policies/**
             **/app/view/**
-            **/resources/css/**
-            **/resources/js/**
+            # **/resources/css/**
+            # **/resources/js/**
             **/resources/views/components/**
           dangerous-clean-slate: false
           timeout: 12000
