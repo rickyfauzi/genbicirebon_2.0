@@ -43,8 +43,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           port: 21
-          passive: true # ✅ hindari error koneksi aktif
-          dangerous-clean-slate: true # ✅ upload lebih cepat
+
           local-dir: ./
           server-dir: /public_html/
           exclude: |
