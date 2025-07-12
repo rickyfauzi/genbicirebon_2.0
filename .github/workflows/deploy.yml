@@ -49,7 +49,7 @@ jobs:
             **/.env*
             **/.git/**
             **/storage/**
-            
+
             **/vendor/**
              !**/public/assets2/images*
              !**/public/assets2/css*
