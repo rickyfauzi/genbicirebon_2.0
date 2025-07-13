@@ -146,9 +146,6 @@
         const soundSend = new Audio("/sounds/send.mp3");
         const soundReceive = new Audio("/sounds/receive.mp3");
 
-        // Simpan session ID di variabel JavaScript agar percakapan tetap nyambung
-        let chatSessionId = null;
-
         function toggleChat() {
             const win = document.getElementById("chat-window");
             win.style.display = win.style.display === "none" ? "block" : "none";
@@ -157,7 +154,38 @@
         document.getElementById("chat-float").addEventListener("click", toggleChat);
 
         function appendMsg(text, sender, isTyping = false) {
-            // ... fungsi appendMsg Anda sudah benar, tidak perlu diubah ...
+            const row = document.createElement("div");
+            row.className = "msg-row " + (sender === "user" ? "msg-user" : "msg-bot");
+
+            const avatar = document.createElement("img");
+            avatar.className = "avatar";
+            avatar.src = sender === "user" ?
+                "http://static.vecteezy.com/system/resources/thumbnails/011/490/381/small_2x/happy-smiling-young-man-avatar-3d-portrait-of-a-man-cartoon-character-people-illustration-isolated-on-white-background-vector.jpg" :
+                "assets2/images/logo.png";
+
+            const bubble = document.createElement("div");
+            bubble.className = "msg-bubble bg-" + (sender === "user" ? "primary text-white" : "light");
+            bubble.textContent = "";
+
+            row.appendChild(avatar);
+            row.appendChild(bubble);
+            document.getElementById("chat-messages").appendChild(row);
+            document.getElementById("chat-messages").scrollTop = document.getElementById("chat-messages").scrollHeight;
+
+            if (isTyping) {
+                let i = 0;
+                const typing = setInterval(() => {
+                    bubble.textContent += text.charAt(i);
+                    i++;
+                    if (i >= text.length) {
+                        clearInterval(typing);
+                        soundReceive.play().catch(() => {});
+                    }
+                }, 25);
+            } else {
+                bubble.textContent = text;
+                if (sender === "bot") soundReceive.play().catch(() => {});
+            }
         }
 
         function sendChat() {
@@ -169,38 +197,25 @@
             soundSend.play().catch(() => {});
             input.value = "";
 
-            // === PERUBAHAN UTAMA DI SINI ===
-            // Ganti URL ke endpoint baru /api/chat
-            fetch("/api/chat", {
+            fetch("/api/webhook-dialogflow", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "Accept": "application/json",
                         "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute("content")
                     },
-                    // Kirim payload yang lebih sederhana
                     body: JSON.stringify({
-                        message: text,
-                        session_id: chatSessionId // Kirim session_id jika sudah ada
+                        queryResult: {
+                            queryText: text
+                        }
                     })
                 })
-                .then(res => {
-                    if (!res.ok) {
-                        throw new Error('Network response was not ok');
-                    }
-                    return res.json();
-                })
+                .then(res => res.json())
                 .then(data => {
                     const reply = data.fulfillmentText || "Bot tidak bisa menjawab saat ini.";
-                    // Simpan session_id yang dikembalikan dari server
-                    if (data.session_id) {
-                        chatSessionId = data.session_id;
-                    }
                     appendMsg(reply, "bot", true);
                 })
-                .catch((error) => {
-                    console.error("Fetch Error:", error);
-                    appendMsg("⚠️ Gagal menghubungi server chatbot.", "bot");
+                .catch(() => {
+                    appendMsg("⚠️ Gagal menghubungi server.", "bot");
                 });
         }
     </script>
