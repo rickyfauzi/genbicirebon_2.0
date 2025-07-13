@@ -36,27 +36,26 @@ jobs:
           fi
           cat changed_files.txt
 
-      - name: 📂 Sync Files to FTP
+      - name: 📂 Sync Files
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           port: 21
-
           local-dir: ./
           server-dir: /public_html/
           exclude: |
             **/.env*
             **/.git/**
-            **/node_modules/**
-            **/vendor/**
             **/storage/**
-            **/bootstrap/**
+            **/vendor/**
+            **/public/**
+            **/database/**
             **/config/**
-            **/lang/**
-            **/tests/**
             **/test/**
+            **/bootstrap/**
+            **/lang/**
             **/app/console/**
             **/app/exceptions/**
             **/app/http/middleware/**
@@ -65,7 +64,8 @@ jobs:
             **/app/notifications/**
             **/app/policies/**
             **/app/view/**
+            # **/resources/css/**
+            # **/resources/js/**
             **/resources/views/components/**
-            .gitignore
-            .github/**
-          timeout: 12000
+          dangerous-clean-slate: false
+          timeout: 24000
