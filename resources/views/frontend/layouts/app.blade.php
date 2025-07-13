@@ -194,28 +194,40 @@
             if (!text) return;
 
             appendMsg(text, "user");
-            soundSend.play().catch(() => {});
             input.value = "";
 
-            fetch("/api/webhook-dialogflow", {
+            // Tampilkan typing indicator
+            appendMsg("...", "bot", true);
+
+            fetch("/webhook-dialogflow", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute("content")
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content,
+                        "Accept": "application/json"
                     },
                     body: JSON.stringify({
                         queryResult: {
-                            queryText: text
+                            queryText: text,
+                            languageCode: "id"
                         }
                     })
                 })
-                .then(res => res.json())
-                .then(data => {
-                    const reply = data.fulfillmentText || "Bot tidak bisa menjawab saat ini.";
-                    appendMsg(reply, "bot", true);
+                .then(response => {
+                    if (!response.ok) throw new Error('Network error');
+                    return response.json();
                 })
-                .catch(() => {
-                    appendMsg("⚠️ Gagal menghubungi server.", "bot");
+                .then(data => {
+                    // Hapus typing indicator
+                    const messages = document.getElementById("chat-messages");
+                    messages.removeChild(messages.lastChild);
+
+                    // Tampilkan jawaban
+                    appendMsg(data.fulfillmentText || "Maaf, terjadi kesalahan", "bot");
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    appendMsg("Maaf, chatbot sedang offline. Coba lagi nanti.", "bot");
                 });
         }
     </script>
