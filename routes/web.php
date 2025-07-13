@@ -35,7 +35,8 @@ use App\Http\Controllers\WebhookController;
 |
 */
 
-Route::post('/webhook-dialogflow', [WebhookController::class, 'handle']);
+Route::post('/dialogflow-webhook', [WebhookController::class, 'handleWebhook'])
+    ->name('dialogflow.webhook');
 
 /** for side bar menu active */
 function set_active($route)

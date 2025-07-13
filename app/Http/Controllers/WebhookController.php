@@ -8,69 +8,45 @@ use Google\Cloud\Firestore\FirestoreClient;
 
 class WebhookController extends Controller
 {
-    public function handle(Request $request)
+    public function handleWebhook(Request $request)
     {
-        Log::info('Webhook hit: payload received', ['body' => $request->all()]);
+        // Log semua request untuk debugging
+        Log::debug('Dialogflow Webhook Payload:', $request->all());
 
-        $data = $request->json()->all();
+        // Parse request dari Dialogflow
+        $intentName = $request->input('queryResult.intent.displayName');
+        $queryText = $request->input('queryResult.queryText');
+        $parameters = $request->input('queryResult.parameters');
+        $session = $request->input('session');
 
-        $queryText = $data['queryResult']['queryText'] ?? '';
-        $intentName = $data['queryResult']['intent']['displayName'] ?? null;
-        $sessionId = $data['session'] ?? null;
+        // Handle berdasarkan intent
+        $response = $this->handleIntent($intentName, $queryText, $parameters);
 
-        Log::info("Parsed Dialogflow input", [
-            'queryText' => $queryText,
-            'intentName' => $intentName,
-            'sessionId' => $sessionId,
-        ]);
-
-        $answer = $this->replyFromIntent($intentName, $queryText);
-
-        try {
-            $this->saveToFirestore($queryText, $answer, $sessionId, $intentName);
-        } catch (\Exception $e) {
-            Log::error("Firestore error", ['error' => $e->getMessage()]);
-        }
-
+        // Format response untuk Dialogflow
         return response()->json([
-            'fulfillmentText' => $answer,
-            'source' => 'genbi-cirebon-webhook'
+            'fulfillmentText' => $response,
+            'source' => 'Laravel Webhook',
+            'payload' => [
+                'laravel_session' => session()->getId()
+            ]
         ]);
     }
 
-    private function replyFromIntent($intentName, $queryText)
+    private function handleIntent($intentName, $queryText, $parameters)
     {
-        $responses = [
-            'Default Welcome Intent' => 'Halo! Saya chatbot GenBI. Ada yang bisa saya bantu?',
-            'kontakgenbiintent' => 'Kamu bisa hubungi GenBI Cirebon via email genbicirebon@gmail.com atau Instagram @genbi.cirebon',
-            'definisi.genbi' => 'GenBI (Generasi Baru Indonesia) adalah komunitas penerima beasiswa Bank Indonesia',
-            'Default Fallback Intent' => 'Maaf, saya tidak mengerti. Bisa dijelaskan lagi?',
-            'openai.auto' => 'Fitur AI sedang dalam pengembangan',
-            null => 'Halo! Ada yang bisa saya bantu seputar GenBI Cirebon?'
-        ];
+        // Tambahkan logika intent Anda di sini
+        switch ($intentName) {
+            case 'Default Welcome Intent':
+                return "Halo! Selamat datang di chatbot GenBI Cirebon. Ada yang bisa saya bantu?";
 
-        return $responses[$intentName] ?? $responses[null];
-    }
+            case 'tanya-kegiatan':
+                return "GenBI Cirebon sering mengadakan kegiatan seperti pelatihan, webinar, dan bakti sosial.";
 
-    private function saveToFirestore($question, $answer, $sessionId, $intentName)
-    {
-        try {
-            $firestore = new FirestoreClient([
-                'keyFilePath' => storage_path('app/firebase/firebase_credentials.json'),
-                'projectId' => 'your-project-id' // tambahkan ini
-            ]);
+            case 'tanya-syarat-beasiswa':
+                return "Syarat utama beasiswa GenBI adalah mahasiswa aktif dengan IPK minimal 3.0.";
 
-            $firestore->collection('chat_history')->add([
-                'session' => $sessionId ?? 'unknown-' . uniqid(),
-                'intent' => $intentName ?? 'unknown',
-                'question' => $question,
-                'answer' => $answer,
-                'timestamp' => now()->toDateTimeString(),
-                'source' => 'web'
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Firestore save failed", ['error' => $e->getMessage()]);
-            throw $e;
+            default:
+                return "Maaf, saya belum paham pertanyaan Anda. Coba tanyakan hal lain ya!";
         }
     }
 }
