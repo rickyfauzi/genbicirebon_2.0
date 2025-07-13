@@ -8,55 +8,76 @@ use Google\Cloud\Firestore\FirestoreClient;
 
 class WebhookController extends Controller
 {
-    public function handleWebhook(Request $request)
+    public function handle(Request $request)
     {
+        Log::info('Webhook hit: payload received', [
+            'body' => $request->all()
+        ]);
 
-        if ($request->isMethod('options')) {
-            return response()->json([], 200);
+        $raw = $request->getContent();
+        Log::info('🔥 RAW JSON', ['raw' => $raw]);
+
+        // Decode JSON dari body request
+        $data = json_decode($raw, true);
+
+        $queryText = $data['queryResult']['queryText'] ?? '';
+        $intentName = $data['queryResult']['intent']['displayName'] ?? null;
+        $sessionId = $data['session'] ?? null;
+
+        Log::info("Parsed Dialogflow input", [
+            'queryText' => $queryText,
+            'intentName' => $intentName,
+            'sessionId' => $sessionId,
+        ]);
+
+        // Balasan berdasarkan intent dari Dialogflow
+        $answer = $this->replyFromIntent($intentName, $queryText);
+
+        // Simpan ke Firestore
+        try {
+            $this->saveToFirestore($queryText, $answer, $sessionId, $intentName);
+            Log::info("Berhasil menyimpan ke Firestore");
+        } catch (\Exception $e) {
+            Log::error("Gagal menyimpan ke Firestore", ['message' => $e->getMessage()]);
         }
 
-        // Log request untuk debugging
-        Log::debug('Dialogflow Request:', [
-            'method' => $request->method(),
-            'payload' => $request->all()
-        ]);
-        // Log semua request untuk debugging
-        Log::debug('Dialogflow Webhook Payload:', $request->all());
-
-        // Parse request dari Dialogflow
-        $intentName = $request->input('queryResult.intent.displayName');
-        $queryText = $request->input('queryResult.queryText');
-        $parameters = $request->input('queryResult.parameters');
-        $session = $request->input('session');
-
-        // Handle berdasarkan intent
-        $response = $this->handleIntent($intentName, $queryText, $parameters);
-
-        // Format response untuk Dialogflow
+        // Respon ke Dialogflow
         return response()->json([
-            'fulfillmentText' => $response,
-            'source' => 'Laravel Webhook',
-            'payload' => [
-                'laravel_session' => session()->getId()
-            ]
+            'fulfillmentText' => $answer,
         ]);
     }
 
-    private function handleIntent($intentName, $queryText, $parameters)
+    private function replyFromIntent($intentName, $queryText)
     {
-        // Tambahkan logika intent Anda di sini
-        switch ($intentName) {
-            case 'Default Welcome Intent':
-                return "Halo! Selamat datang di chatbot GenBI Cirebon. Ada yang bisa saya bantu?";
+        Log::info("Membuat balasan berdasarkan intent", ['intent' => $intentName]);
 
-            case 'tanya-kegiatan':
-                return "GenBI Cirebon sering mengadakan kegiatan seperti pelatihan, webinar, dan bakti sosial.";
+        $responses = [
+            'Default Welcome Intent' => 'Halo! Saya chatbot GenBI. Ada yang bisa saya bantu?',
+            'kontakgenbiintent' => 'Kamu bisa menghubungi GenBI Cirebon melalui email genbicirebon@gmail.com atau Instagram kami di @genbi.cirebon',
+            'definisi.genbi' => 'GenBI (Generasi Baru Indonesia) adalah komunitas penerima beasiswa Bank Indonesia yang aktif dalam kegiatan sosial, edukasi, dan pengembangan diri.',
+            'Default Fallback Intent' => 'Maaf, saya tidak mengerti maksud Anda. Bisa dijelaskan lagi?',
+            'openai.auto' => 'Saya belum bisa menjawab karena layanan AI sedang tidak aktif.',
+        ];
 
-            case 'tanya-syarat-beasiswa':
-                return "Syarat utama beasiswa GenBI adalah mahasiswa aktif dengan IPK minimal 3.0.";
+        return $responses[$intentName] ?? "Saya belum paham maksudnya.";
+    }
 
-            default:
-                return "Maaf, saya belum paham pertanyaan Anda. Coba tanyakan hal lain ya!";
-        }
+    private function saveToFirestore($question, $answer, $sessionId, $intentName)
+    {
+        Log::info("Inisialisasi koneksi ke Firestore");
+
+        $firestore = new FirestoreClient([
+            'keyFilePath' => storage_path('app/firebase/firebase_credentials.json'),
+        ]);
+
+        $collection = $firestore->collection('chat_history');
+
+        $collection->add([
+            'session' => $sessionId ?? 'unknown',
+            'intent' => $intentName,
+            'question' => $question,
+            'answer' => $answer,
+            'timestamp' => now()
+        ]);
     }
 }

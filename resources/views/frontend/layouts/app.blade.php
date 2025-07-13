@@ -194,40 +194,28 @@
             if (!text) return;
 
             appendMsg(text, "user");
+            soundSend.play().catch(() => {});
             input.value = "";
 
-            // Tampilkan typing indicator
-            appendMsg("...", "bot", true);
-
-            fetch("/webhook-dialogflow", {
+            fetch("/api/webhook-dialogflow", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content,
-                        "Accept": "application/json"
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute("content")
                     },
                     body: JSON.stringify({
                         queryResult: {
-                            queryText: text,
-                            languageCode: "id"
+                            queryText: text
                         }
                     })
                 })
-                .then(response => {
-                    if (!response.ok) throw new Error('Network error');
-                    return response.json();
-                })
+                .then(res => res.json())
                 .then(data => {
-                    // Hapus typing indicator
-                    const messages = document.getElementById("chat-messages");
-                    messages.removeChild(messages.lastChild);
-
-                    // Tampilkan jawaban
-                    appendMsg(data.fulfillmentText || "Maaf, terjadi kesalahan", "bot");
+                    const reply = data.fulfillmentText || "Bot tidak bisa menjawab saat ini.";
+                    appendMsg(reply, "bot", true);
                 })
-                .catch(error => {
-                    console.error('Error:', error);
-                    appendMsg("Maaf, chatbot sedang offline. Coba lagi nanti.", "bot");
+                .catch(() => {
+                    appendMsg("⚠️ Gagal menghubungi server.", "bot");
                 });
         }
     </script>
