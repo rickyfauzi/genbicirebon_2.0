@@ -5,28 +5,85 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Google\Cloud\Firestore\FirestoreClient;
+// Tambahkan use statement ini
+use Google\Cloud\Dialogflow\V2\SessionsClient;
+use Google\Cloud\Dialogflow\V2\QueryInput;
+use Google\Cloud\Dialogflow\V2\TextInput;
 
 class WebhookController extends Controller
 {
+    /**
+     * Method BARU: Menerima pesan dari frontend, mengirimkannya ke Dialogflow,
+     * dan mengembalikan jawaban ke frontend.
+     */
+    public function handleChat(Request $request)
+    {
+        $message = $request->input('message');
+        if (!$message) {
+            return response()->json(['fulfillmentText' => 'Pesan tidak boleh kosong.'], 400);
+        }
+
+        try {
+            // ID Proyek Google Cloud Anda
+            $projectId = env('DIALOGFLOW_PROJECT_ID', 'ganti-dengan-project-id-anda');
+
+            // Buat session ID unik untuk setiap user.
+            // Untuk production, sebaiknya gunakan Laravel Session atau ID user yang login.
+            $sessionId = $request->input('session_id', uniqid());
+
+            // Inisialisasi Dialogflow SessionsClient
+            $sessionsClient = new SessionsClient([
+                'credentials' => storage_path('app/firebase/firebase_credentials.json')
+            ]);
+            $sessionName = $sessionsClient->sessionName($projectId, $sessionId);
+
+            // Buat query input
+            $textInput = new TextInput();
+            $textInput->setText($message);
+            $textInput->setLanguageCode('id'); // Ganti dengan kode bahasa agent Anda
+
+            $queryInput = new QueryInput();
+            $queryInput->setText($textInput);
+
+            // Kirim request ke Dialogflow
+            $response = $sessionsClient->detectIntent($sessionName, $queryInput);
+            $queryResult = $response->getQueryResult();
+            $fulfillmentText = $queryResult->getFulfillmentText();
+
+            // Tutup koneksi client
+            $sessionsClient->close();
+
+            // Kirim jawaban dari Dialogflow kembali ke frontend
+            return response()->json([
+                'fulfillmentText' => $fulfillmentText,
+                'session_id' => $sessionId // Kirim kembali session ID agar bisa dipakai lagi
+            ]);
+        } catch (\Exception $e) {
+            Log::channel('stderr')->error('❌ [DIALOGFLOW API GAGAL] Gagal menghubungi API Dialogflow.', ['error' => $e->getMessage()]);
+            return response()->json(['fulfillmentText' => 'Maaf, terjadi kesalahan pada server chatbot.'], 500);
+        }
+    }
+
+    /**
+     * Method LAMA: Ini adalah webhook yang akan dipanggil oleh Dialogflow.
+     * Kode ini sudah benar dan tidak perlu diubah.
+     */
     public function handle(Request $request)
     {
         // LOG 1: BUKTI BAHWA REQUEST DARI DIALOGFLOW SUDAH SAMPAI
-        Log::channel('stderr')->info('✅ [SAMBUNGAN BERHASIL] Webhook URL berhasil diakses oleh Dialogflow.');
+        Log::channel('stderr')->info('✅ [WEBHOOK DARI DIALOGFLOW] Webhook URL berhasil diakses oleh Dialogflow.');
 
-        // LOG 2: TAMPILKAN SEMUA DATA MENTAH YANG DIKIRIM
+        // ... sisa kode handle() Anda sudah benar ...
         $rawPayload = $request->getContent();
-        Log::channel('stderr')->info('📦 [DATA MENTAH] Payload JSON dari Dialogflow:', ['raw' => $rawPayload]);
+        Log::channel('stderr')->info('📦 [WEBHOOK DATA MENTAH] Payload JSON dari Dialogflow:', ['raw' => $rawPayload]);
 
-        // Decode JSON untuk diproses
         $data = json_decode($rawPayload, true);
 
-        // Ambil data penting dengan aman
         $queryText = $data['queryResult']['queryText'] ?? '[TIDAK ADA]';
         $intentName = $data['queryResult']['intent']['displayName'] ?? '[KOSONG/NULL]';
         $sessionId = $data['session'] ?? '[TIDAK ADA]';
 
-        // LOG 3: TAMPILKAN HASIL PARSING
-        Log::channel('stderr')->info('🔍 [HASIL PARSING] Data yang berhasil dibaca:', [
+        Log::channel('stderr')->info('🔍 [WEBHOOK HASIL PARSING] Data yang berhasil dibaca:', [
             'Query' => $queryText,
             'Intent' => $intentName,
             'Session' => $sessionId,
@@ -38,18 +95,16 @@ class WebhookController extends Controller
 
         $answer = $this->getAnswerForIntent($intentName);
 
-        // LOG 4: JAWABAN YANG AKAN DIKIRIM KEMBALI
-        Log::channel('stderr')->info('💬 [RESPONS] Jawaban yang akan dikirim:', ['answer' => $answer]);
+        Log::channel('stderr')->info('💬 [WEBHOOK RESPONS] Jawaban yang akan dikirim:', ['answer' => $answer]);
 
-        // Coba simpan ke Firestore
         $this->saveToFirestore($queryText, $answer, $sessionId, $intentName);
 
-        // Kirim balasan ke Dialogflow
         return response()->json([
             'fulfillmentText' => $answer,
         ]);
     }
 
+    // Fungsi getAnswerForIntent dan saveToFirestore tidak perlu diubah
     private function getAnswerForIntent($intentName)
     {
         $responses = [
@@ -58,11 +113,7 @@ class WebhookController extends Controller
             // ... intent lain
         ];
 
-        if ($intentName && array_key_exists($intentName, $responses)) {
-            return $responses[$intentName];
-        }
-
-        return 'Maaf, saya tidak mengerti maksud Anda. Silakan coba lagi.';
+        return $responses[$intentName] ?? 'Maaf, saya tidak mengerti maksud Anda. Silakan coba lagi.';
     }
 
     private function saveToFirestore($question, $answer, $sessionId, $intentName)
@@ -83,7 +134,6 @@ class WebhookController extends Controller
             ]);
             Log::channel('stderr')->info('✅ [FIRESTORE] Berhasil menyimpan ke Firestore.');
         } catch (\Exception $e) {
-            // LOG 5: TANGKAP ERROR SPESIFIK DARI FIRESTORE
             Log::channel('stderr')->error('❌ [FIRESTORE GAGAL] Tidak bisa menyimpan data.', ['error' => $e->getMessage()]);
         }
     }

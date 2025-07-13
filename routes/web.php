@@ -35,6 +35,9 @@ use App\Http\Controllers\WebhookController;
 |
 */
 
+Route::post('/chat', [WebhookController::class, 'handleChat']);
+
+// Route LAMA ini untuk dipanggil oleh Dialogflow (biarkan saja)
 Route::post('/webhook-dialogflow', [WebhookController::class, 'handle']);
 
 /** for side bar menu active */
