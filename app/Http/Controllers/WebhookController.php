@@ -10,6 +10,16 @@ class WebhookController extends Controller
 {
     public function handleWebhook(Request $request)
     {
+
+        if ($request->isMethod('options')) {
+            return response()->json([], 200);
+        }
+
+        // Log request untuk debugging
+        Log::debug('Dialogflow Request:', [
+            'method' => $request->method(),
+            'payload' => $request->all()
+        ]);
         // Log semua request untuk debugging
         Log::debug('Dialogflow Webhook Payload:', $request->all());
 
