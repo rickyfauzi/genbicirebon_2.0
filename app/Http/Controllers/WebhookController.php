@@ -10,45 +10,43 @@ class WebhookController extends Controller
 {
     public function handle(Request $request)
     {
-        // Log raw request untuk debugging
-        Log::info('🔥 RAW JSON', ['raw' => $request->getContent()]);
-
-        // Decode data JSON dari Dialogflow
-        $data = json_decode($request->getContent(), true);
-
-        // Jika format request tidak valid, beri respon error
-        if (!$data || !isset($data['queryResult'])) {
-            return response()->json([
-                'fulfillmentText' => 'Format request tidak valid.'
-            ], 400);
-        }
-
-        // Ambil data penting dari request
-        $queryText = $data['queryResult']['queryText'] ?? '';
-        $intentName = $data['queryResult']['intent']['displayName'] ?? 'Default Fallback Intent';
-        $sessionId = $data['session'] ?? 'session-' . uniqid();
-
-        Log::info("Request Dialogflow", [
-            'query' => $queryText,
-            'intent' => $intentName,
-            'session' => $sessionId
-        ]);
-
-        // Dapatkan balasan berdasarkan intent
-        $answer = $this->replyFromIntent($intentName, $queryText);
-
-        // Simpan ke Firestore (jika gRPC terinstall)
         try {
-            $this->saveToFirestore($queryText, $answer, $sessionId, $intentName);
-            Log::info("Data tersimpan di Firestore");
-        } catch (\Exception $e) {
-            Log::error("Gagal menyimpan ke Firestore: " . $e->getMessage());
-        }
+            Log::info('🔥 RAW JSON', ['raw' => $request->getContent()]);
 
-        // Kirim balasan ke Dialogflow
-        return response()->json([
-            'fulfillmentText' => $answer,
-        ]);
+            $data = json_decode($request->getContent(), true);
+
+            // Validasi request
+            if (!$data || !isset($data['queryResult'])) {
+                throw new \Exception('Invalid request format');
+            }
+
+            $queryText = $data['queryResult']['queryText'] ?? '';
+            $intentName = $data['queryResult']['intent']['displayName'] ?? 'Default Fallback Intent';
+            $sessionId = $data['session'] ?? 'session-' . uniqid();
+
+            Log::info("Request Dialogflow", [
+                'query' => $queryText,
+                'intent' => $intentName,
+                'session' => $sessionId
+            ]);
+
+            // Dapatkan balasan
+            $answer = $this->replyFromIntent($intentName, $queryText);
+
+            // Simpan ke Firestore (opsional)
+            $this->saveToFirestore($queryText, $answer, $sessionId, $intentName);
+
+            return response()->json([
+                'fulfillmentText' => $answer,
+                'source' => 'genbicirebon.org'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Webhook Error: ' . $e->getMessage());
+            return response()->json([
+                'fulfillmentText' => 'Maaf, sedang ada gangguan teknis. Silakan coba lagi nanti.',
+                'source' => 'genbicirebon.org'
+            ], 500);
+        }
     }
 
     /**
@@ -80,23 +78,39 @@ class WebhookController extends Controller
      */
     private function saveToFirestore($question, $answer, $sessionId, $intentName)
     {
-        // Jika gRPC tidak terinstall, lewati penyimpanan
-        if (!extension_loaded('grpc')) {
-            Log::warning("gRPC tidak aktif. Data tidak disimpan.");
-            return;
+        try {
+            // Skip jika gRPC tidak ada
+            if (!extension_loaded('grpc')) {
+                Log::warning("gRPC extension tidak tersedia");
+                return false;
+            }
+
+            // Skip jika file credentials tidak ada
+            if (!file_exists(storage_path('app/firebase/firebase_credentials.json'))) {
+                Log::warning("File Firebase credentials tidak ditemukan");
+                return false;
+            }
+
+            $firestore = new FirestoreClient([
+                'keyFilePath' => storage_path('app/firebase/firebase_credentials.json'),
+                'projectId' => 'your-firebase-project-id' // Tambahkan ini
+            ]);
+
+            $collection = $firestore->collection('chat_history');
+            $collection->add([
+                'session' => $sessionId,
+                'intent' => $intentName,
+                'question' => $question,
+                'answer' => $answer,
+                'timestamp' => now()->toDateTimeString(),
+                'source' => 'web'
+            ]);
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error("Firestore Error: " . $e->getMessage());
+            return false;
         }
-
-        $firestore = new FirestoreClient([
-            'keyFilePath' => storage_path('app/firebase/firebase_credentials.json'),
-        ]);
-
-        $collection = $firestore->collection('chat_history');
-        $collection->add([
-            'session' => $sessionId,
-            'intent' => $intentName,
-            'question' => $question,
-            'answer' => $answer,
-            'timestamp' => now()->toDateTimeString()
-        ]);
     }
 }
+y
