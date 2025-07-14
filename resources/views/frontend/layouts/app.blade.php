@@ -196,18 +196,15 @@
 
             appendMsg(text, "user");
             input.value = "";
-            soundSend.play().catch(() => {}); // Mainkan suara saat mengirim
 
             const payload = {
                 queryText: text,
-                // Kirim session ID yang unik untuk setiap percakapan
-                // Anda bisa menyimpannya di localStorage jika ingin percakapan berlanjut
-                session: "web-session-" + (localStorage.getItem('chat_session_id') || Date.now())
+                session: localStorage.getItem('chat_session') || 'session-' + Date.now()
             };
 
-            // Jika belum ada session id, buat dan simpan
-            if (!localStorage.getItem('chat_session_id')) {
-                localStorage.setItem('chat_session_id', Date.now());
+            // Simpan session ID jika belum ada
+            if (!localStorage.getItem('chat_session')) {
+                localStorage.setItem('chat_session', payload.session);
             }
 
             fetch("/chat", {
@@ -215,29 +212,24 @@
                     headers: {
                         "Content-Type": "application/json",
                         "Accept": "application/json",
-                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
                     },
                     body: JSON.stringify(payload)
                 })
                 .then(response => {
-                    // Cek jika response dari server tidak OK (misal: error 500)
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
-                    return response.json(); // Ubah response menjadi format JSON
+                    return response.json();
                 })
                 .then(data => {
-                    // Ambil teks balasan dari data JSON
-                    console.log("Response from server:", data); // Untuk debugging
+                    console.log("Dialogflow Response:", data);
                     const reply = data.fulfillmentText || "Maaf, saya tidak mendapat balasan.";
-
-                    // Tampilkan balasan dari bot dengan efek mengetik
                     appendMsg(reply, "bot", true);
                 })
                 .catch(error => {
-                    // Tangani jika terjadi error koneksi atau error dari server
-                    console.error("Fetch Error:", error);
-                    appendMsg("⚠️ Maaf, terjadi gangguan. Silakan coba lagi nanti.", "bot");
+                    console.error("Error:", error);
+                    appendMsg("⚠️ Gangguan sementara. Silakan refresh halaman atau coba lagi nanti.", "bot");
                 });
         }
 

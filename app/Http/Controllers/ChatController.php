@@ -2,73 +2,71 @@
 
 namespace App\Http\Controllers;
 
-use Google\Cloud\Dialogflow\V2\Client\SessionsClient;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
+use Google\Cloud\Dialogflow\V2\DetectIntentRequest;
 use Google\Cloud\Dialogflow\V2\QueryInput;
 use Google\Cloud\Dialogflow\V2\TextInput;
+use Google\Cloud\Dialogflow\V2\SessionsClient;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class ChatController extends Controller
 {
-    /**
-     * Menerima pesan dari frontend, mengirimkannya ke Dialogflow,
-     * dan mengembalikan respons dari Dialogflow.
-     */
     public function detectIntent(Request $request)
     {
-        // Validasi input dari frontend
         $request->validate([
             'queryText' => 'required|string',
-            'session' => 'nullable|string', // Session ID bisa dikirim dari frontend atau dibuat di sini
+            'session' => 'nullable|string',
         ]);
 
         try {
-            $queryText = $request->input('queryText');
-            // Gunakan session dari request atau buat yang baru jika tidak ada
-            $sessionId = $request->input('session', uniqid('session-', true));
-
-            // Path ke file credentials Anda
-            // Path ke file credentials Anda
-            $credentialsPath = storage_path('app/genbi-key.json'); // Hapus 'storage/' di dalam fungsi
+            // 1. Setup Credentials
+            $credentialsPath = storage_path('app/genbi-key.json');
             if (!file_exists($credentialsPath)) {
-                throw new \Exception('File Firebase credentials tidak ditemukan.');
+                throw new \Exception('File credentials tidak ditemukan');
             }
 
-            // Konfigurasi untuk Dialogflow Client
-            $config = [
+            putenv("GOOGLE_APPLICATION_CREDENTIALS=$credentialsPath");
+
+            // 2. Prepare Dialogflow Request
+            $projectId = 'genbichatbot-gjxn';
+            $sessionId = $request->input('session', 'web-session-' . uniqid());
+            $queryText = $request->input('queryText');
+
+            $sessionsClient = new SessionsClient([
                 'credentials' => $credentialsPath
-            ];
+            ]);
 
-            $sessionsClient = new SessionsClient($config);
-            $projectId = 'chatbotgenbi'; // GANTI DENGAN PROJECT ID ANDA
-
-            // Format nama session yang dibutuhkan oleh Dialogflow
             $sessionName = $sessionsClient->sessionName($projectId, $sessionId);
 
-            // Buat query input dari teks
-            $textInput = new TextInput();
-            $textInput->setText($queryText);
-            $textInput->setLanguageCode('id'); // Gunakan 'id' untuk Bahasa Indonesia
+            // 3. Create Query Input
+            $textInput = (new TextInput())
+                ->setText($queryText)
+                ->setLanguageCode('id');
 
-            $queryInput = new QueryInput();
-            $queryInput->setText($textInput);
+            $queryInput = (new QueryInput())
+                ->setText($textInput);
 
-            // Kirim request ke Dialogflow
-            $response = $sessionsClient->detectIntent($sessionName, $queryInput);
+            // 4. Create DetectIntentRequest
+            $detectIntentRequest = (new DetectIntentRequest())
+                ->setSession($sessionName)
+                ->setQueryInput($queryInput);
+
+            // 5. Send Request
+            $response = $sessionsClient->detectIntent($detectIntentRequest);
             $queryResult = $response->getQueryResult();
-            $fulfillmentText = $queryResult->getFulfillmentText();
 
-            // Tutup koneksi client
+            // 6. Close Connection
             $sessionsClient->close();
 
-            // Kirim balasan dari Dialogflow ke frontend
             return response()->json([
-                'fulfillmentText' => $fulfillmentText,
+                'fulfillmentText' => $queryResult->getFulfillmentText() ?: 'Maaf, saya tidak mengerti',
+                'intent' => $queryResult->getIntent() ? $queryResult->getIntent()->getDisplayName() : null
             ]);
         } catch (\Exception $e) {
-            Log::error('Dialogflow Proxy Error: ' . $e->getMessage());
+            Log::error('Dialogflow Error: ' . $e->getMessage());
             return response()->json([
-                'fulfillmentText' => 'Maaf, terjadi kesalahan saat menghubungi asisten virtual kami.'
+                'fulfillmentText' => 'Maaf, sedang ada gangguan teknis',
+                'error' => env('APP_DEBUG') ? $e->getMessage() : null
             ], 500);
         }
     }
