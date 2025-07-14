@@ -4,142 +4,224 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Google\Cloud\Dialogflow\V2\QueryInput;
+use Google\Cloud\Dialogflow\V2\TextInput;
 use Google\Cloud\Firestore\FirestoreClient;
+use Exception;
+use Google\Cloud\Dialogflow\V2\Client\SessionsClient;
 
 class WebhookController extends Controller
 {
+    private $firestore;
+    private $projectId = 'genbichatbot'; // Pastikan ini adalah Project ID Google Cloud Anda
+
+    public function __construct()
+    {
+        // Inisialisasi Firestore Client saat controller dibuat
+        // Pastikan GOOGLE_APPLICATION_CREDENTIALS sudah diatur di .env
+        if (config('services.google.credentials_path') || env('GOOGLE_APPLICATION_CREDENTIALS')) {
+            try {
+                $this->firestore = new FirestoreClient([
+                    'projectId' => $this->projectId,
+                ]);
+            } catch (Exception $e) {
+                Log::error('Firestore Initialization Failed: ' . $e->getMessage());
+                $this->firestore = null;
+            }
+        }
+    }
+
+    /**
+     * Handles all incoming chat requests, routing them based on their source.
+     */
     public function handle(Request $request)
     {
+        $data = $request->all();
+        Log::info('🔥 RAW JSON RECEIVED', ['content' => $request->getContent()]);
+
         try {
-            Log::info('🔥 RAW JSON', ['raw' => $request->getContent()]);
-
-            $data = json_decode($request->getContent(), true);
-
-            // Validasi request
-            if (!$data || !isset($data['queryResult'])) {
-                throw new \Exception('Invalid request format');
+            // Case 1: Request is a Fulfillment Webhook from DIALOGFLOW
+            if (isset($data['queryResult'])) {
+                return $this->handleDialogflowFulfillment($data);
             }
-
-            $queryText = $data['queryResult']['queryText'] ?? '';
-            $intentName = $data['queryResult']['intent']['displayName'] ?? 'Default Fallback Intent';
-            $sessionId = $data['session'] ?? 'session-' . uniqid();
-
-            Log::info("Request Dialogflow", [
-                'query' => $queryText,
-                'intent' => $intentName,
-                'session' => $sessionId
-            ]);
-
-            // Dapatkan balasan berdasarkan intent atau keyword
-            $answer = $this->replyFromIntent($intentName, $queryText);
-
-            // Simpan ke Firestore (opsional)
-            $this->saveToFirestore($queryText, $answer, $sessionId, $intentName);
-
-            // Format response untuk Dialogflow
+            // Case 2: Request is a Proxy call from OUR CUSTOM FRONTEND
+            elseif (isset($data['queryText']) && isset($data['sessionId'])) {
+                return $this->handleFrontendProxy($request);
+            }
+            // If neither format matches
+            throw new Exception('Invalid request format.');
+        } catch (Exception $e) {
+            Log::error('Webhook Error: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json([
-                'fulfillmentText' => $answer,
-                'source' => 'genbicirebon.org'
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Webhook Error: ' . $e->getMessage());
-            return response()->json([
-                'fulfillmentText' => 'Maaf, sedang ada gangguan teknis. Silakan coba lagi nanti.',
-                'source' => 'genbicirebon.org'
+                'fulfillmentText' => 'Maaf, sistem chatbot sedang mengalami gangguan teknis. Coba lagi nanti.',
+                'source' => 'genbicirebon.org (Error)'
             ], 500);
         }
     }
 
     /**
-     * Memberikan balasan berdasarkan intent dan keyword
+     * Handles requests coming directly from Dialogflow's fulfillment webhook.
      */
-    private function replyFromIntent($intentName, $queryText)
+    private function handleDialogflowFulfillment($data)
     {
-        // Responses berdasarkan intent name
-        $intentResponses = [
-            'Default Welcome Intent' => 'Halo! Saya chatbot GenBI Cirebon. Ada yang bisa saya bantu? 😊',
-            'kontakgenbiintent' => '📧 Email: genbicirebon@gmail.com | 📱 Instagram: @genbi.cirebon | 🌐 Website: genbicirebon.org',
-            'definisi.genbi' => 'GenBI (Generasi Baru Indonesia) adalah komunitas penerima beasiswa Bank Indonesia yang aktif dalam kegiatan sosial, edukasi, dan pengembangan diri untuk membangun Indonesia yang lebih baik.',
-            'TentangGenBIIntent' => 'GenBI (Generasi Baru Indonesia) adalah komunitas penerima beasiswa Bank Indonesia yang aktif dalam kegiatan sosial, edukasi, dan pengembangan diri untuk membangun Indonesia yang lebih baik.',
-            'Default Fallback Intent' => $this->handleFallback($queryText)
-        ];
+        Log::info('Handling Dialogflow Fulfillment Webhook.');
 
-        return $intentResponses[$intentName] ?? $this->handleFallback($queryText);
+        $intentName = $data['queryResult']['intent']['displayName'] ?? 'Unknown Intent';
+        $queryText = $data['queryResult']['queryText'] ?? '';
+        $sessionId = last(explode('/', $data['session'])); // Ekstrak session ID
+
+        // **LOGIKA CACHING: Cek jawaban di Firestore terlebih dahulu**
+        $cachedResponse = $this->getFromCache($queryText, $intentName);
+        if ($cachedResponse) {
+            $this->logToFirestore($sessionId, $queryText, $cachedResponse, $intentName, 'cache');
+            return response()->json(['fulfillmentText' => $cachedResponse]);
+        }
+
+        // Jika tidak ada di cache, buat jawaban dinamis
+        $responseText = $this->getResponseForIntent($intentName, $queryText, $data);
+
+        // Simpan jawaban baru ke Firestore untuk logging
+        $this->logToFirestore($sessionId, $queryText, $responseText, $intentName, 'webhook');
+
+        return response()->json(['fulfillmentText' => $responseText]);
     }
 
     /**
-     * Handle fallback dengan keyword detection
+     * Handles proxy requests from our custom frontend chat.
      */
-    private function handleFallback($queryText)
+    private function handleFrontendProxy(Request $request)
     {
-        $query = strtolower($queryText);
+        Log::info('Handling Proxy from Custom Frontend.');
 
-        // Keyword-based responses
-        if (strpos($query, 'genbi') !== false || strpos($query, 'generasi baru') !== false) {
-            return 'GenBI (Generasi Baru Indonesia) adalah komunitas penerima beasiswa Bank Indonesia yang aktif dalam kegiatan sosial, edukasi, dan pengembangan diri untuk membangun Indonesia yang lebih baik.';
+        $validated = $request->validate([
+            'queryText' => 'required|string|max:255',
+            'sessionId' => 'required|string',
+        ]);
+
+        $queryText = $validated['queryText'];
+        $sessionId = $validated['sessionId'];
+
+        // **LOGIKA CACHING: Cek jawaban di Firestore terlebih dahulu**
+        $cachedResponse = $this->getFromCache($queryText);
+        if ($cachedResponse) {
+            $this->logToFirestore($sessionId, $queryText, $cachedResponse, 'N/A', 'cache');
+            return response()->json(['fulfillmentText' => $cachedResponse, 'source' => 'cache']);
         }
 
-        if (strpos($query, 'kontak') !== false || strpos($query, 'hubungi') !== false) {
-            return '📧 Email: genbicirebon@gmail.com | 📱 Instagram: @genbi.cirebon | 🌐 Website: genbicirebon.org';
-        }
+        // Jika tidak ada di cache, hubungi Dialogflow
+        $dialogflowResponse = $this->detectIntent($this->projectId, $sessionId, $queryText, 'id');
 
-        if (strpos($query, 'beasiswa') !== false) {
-            return 'Beasiswa Bank Indonesia merupakan program pemberian bantuan dana pendidikan untuk mahasiswa berprestasi. Untuk info lebih lanjut, hubungi kontak GenBI Cirebon ya!';
-        }
+        // Simpan jawaban baru ke Firestore untuk logging
+        $this->logToFirestore($sessionId, $queryText, $dialogflowResponse['fulfillmentText'], $dialogflowResponse['intentName'], 'dialogflow');
 
-        if (strpos($query, 'kegiatan') !== false || strpos($query, 'program') !== false) {
-            return 'GenBI Cirebon aktif dalam berbagai kegiatan seperti workshop, seminar, kegiatan sosial, dan pengembangan soft skill. Follow Instagram @genbi.cirebon untuk update terbaru!';
-        }
-
-        if (strpos($query, 'halo') !== false || strpos($query, 'hai') !== false || strpos($query, 'hi') !== false) {
-            return 'Halo! Saya chatbot GenBI Cirebon. Ada yang bisa saya bantu? 😊';
-        }
-
-        if (strpos($query, 'terima kasih') !== false || strpos($query, 'thanks') !== false) {
-            return 'Sama-sama! Senang bisa membantu. Jangan ragu untuk bertanya lagi ya! 😊';
-        }
-
-        // Default fallback
-        return 'Maaf, saya tidak mengerti maksud Anda. Bisa dijelaskan lagi? Atau coba tanyakan tentang GenBI, beasiswa, kegiatan, atau kontak kami. 😊';
+        return response()->json([
+            'fulfillmentText' => $dialogflowResponse['fulfillmentText'],
+            'source' => 'genbicirebon.org (Proxy)',
+            'detectedIntent' => $dialogflowResponse['intentName']
+        ]);
     }
 
     /**
-     * Simpan riwayat chat ke Firestore
+     * Gets a dynamic response based on intent for fulfillment calls.
      */
-    private function saveToFirestore($question, $answer, $sessionId, $intentName)
+    private function getResponseForIntent($intentName, $queryText, $data)
     {
+        // Di sini Anda bisa menambahkan logika kustom.
+        switch ($intentName) {
+            case 'definisi.genbi':
+                return "Ini jawaban dari Webhook: GenBI (Generasi Baru Indonesia) adalah komunitas elit penerima beasiswa Bank Indonesia yang dibina untuk menjadi pemimpin masa depan.";
+            case 'kontakgenbiintent':
+                return "Anda bisa menghubungi kami via Instagram @genbi.cirebon atau email genbicirebon@gmail.com. (Info dari Webhook).";
+                // Tambahkan case lain untuk intent yang membutuhkan logika backend
+            default:
+                // Jika tidak ada logika khusus, gunakan response default dari Dialogflow
+                return $data['queryResult']['fulfillmentText'] ?? "Maaf, saya belum mengerti pertanyaan itu.";
+        }
+    }
+
+    /**
+     * Calls Dialogflow API to detect intent.
+     */
+    private function detectIntent($projectId, $sessionId, $text, $languageCode)
+    {
+        $sessionsClient = new SessionsClient();
+        $sessionName = $sessionsClient->sessionName($projectId, $sessionId);
+
+        $textInput = new TextInput();
+        $textInput->setText($text);
+        $textInput->setLanguageCode($languageCode);
+
+        $queryInput = new QueryInput();
+        $queryInput->setText($textInput);
+
         try {
-            // Skip jika gRPC tidak ada
-            if (!extension_loaded('grpc')) {
-                Log::warning("gRPC extension tidak tersedia");
-                return false;
-            }
+            $response = $sessionsClient->detectIntent($sessionName, $queryInput);
+            $queryResult = $response->getQueryResult();
+            return [
+                'fulfillmentText' => $queryResult->getFulfillmentText(),
+                'intentName' => $queryResult->getIntent()->getDisplayName(),
+            ];
+        } finally {
+            $sessionsClient->close();
+        }
+    }
 
-            // Skip jika file credentials tidak ada
-            if (!file_exists(storage_path('app/firebase/firebase_credentials.json'))) {
-                Log::warning("File Firebase credentials tidak ditemukan");
-                return false;
-            }
-
-            $firestore = new FirestoreClient([
-                'keyFilePath' => storage_path('app/firebase/firebase_credentials.json'),
-                'projectId' => 'your-firebase-project-id' // Ganti dengan project ID Anda
-            ]);
-
-            $collection = $firestore->collection('chat_history');
-            $collection->add([
-                'session' => $sessionId,
-                'intent' => $intentName,
+    /**
+     * Logs the conversation to Firestore.
+     */
+    private function logToFirestore($sessionId, $question, $answer, $intentName, $source)
+    {
+        if (!$this->firestore) {
+            Log::warning('Firestore client not available. Skipping log.');
+            return;
+        }
+        try {
+            $collectionReference = $this->firestore->collection('chat_history');
+            $collectionReference->add([
+                'sessionId' => $sessionId,
                 'question' => $question,
                 'answer' => $answer,
-                'timestamp' => now()->toDateTimeString(),
-                'source' => 'web'
+                'intent' => $intentName,
+                'source' => $source, // 'dialogflow', 'webhook', 'cache'
+                'timestamp' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
             ]);
+        } catch (Exception $e) {
+            Log::error('Failed to log to Firestore: ' . $e->getMessage());
+        }
+    }
 
-            return true;
-        } catch (\Exception $e) {
-            Log::error("Firestore Error: " . $e->getMessage());
-            return false;
+    /**
+     * Checks for a relevant answer in the Firestore cache.
+     * Caching key is a normalized version of the question text.
+     */
+    private function getFromCache($question, $intentName = null)
+    {
+        if (!$this->firestore) {
+            Log::warning('Firestore client not available. Skipping cache check.');
+            return null;
+        }
+
+        // Normalisasi pertanyaan untuk dijadikan kunci cache
+        $cacheKey = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '', $question)));
+        if (empty($cacheKey)) return null;
+
+        try {
+            // Collection untuk cache bisa berbeda, misal 'chat_cache'
+            $cacheRef = $this->firestore->collection('chat_cache')->document($cacheKey);
+            $snapshot = $cacheRef->snapshot();
+
+            if ($snapshot->exists()) {
+                Log::info('Cache hit!', ['key' => $cacheKey]);
+                // Anda bisa menambahkan logika relevansi di sini,
+                // misal: cek apakah intent-nya sama jika tersedia
+                return $snapshot->data()['answer'];
+            }
+
+            Log::info('Cache miss.', ['key' => $cacheKey]);
+            return null;
+        } catch (Exception $e) {
+            Log::error('Failed to get from cache: ' . $e->getMessage());
+            return null;
         }
     }
 }
