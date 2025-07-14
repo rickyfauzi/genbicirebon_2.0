@@ -30,12 +30,13 @@ class WebhookController extends Controller
                 'session' => $sessionId
             ]);
 
-            // Dapatkan balasan
+            // Dapatkan balasan berdasarkan intent atau keyword
             $answer = $this->replyFromIntent($intentName, $queryText);
 
             // Simpan ke Firestore (opsional)
             $this->saveToFirestore($queryText, $answer, $sessionId, $intentName);
 
+            // Format response untuk Dialogflow
             return response()->json([
                 'fulfillmentText' => $answer,
                 'source' => 'genbicirebon.org'
@@ -50,18 +51,56 @@ class WebhookController extends Controller
     }
 
     /**
-     * Memberikan balasan berdasarkan intent
+     * Memberikan balasan berdasarkan intent dan keyword
      */
     private function replyFromIntent($intentName, $queryText)
     {
-        $responses = [
-            'Default Welcome Intent' => 'Halo! Saya chatbot GenBI. Ada yang bisa saya bantu?',
-            'kontakgenbiintent' => '📧 Email: genbicirebon@gmail.com | 📱 IG: @genbi.cirebon',
-            'definisi.genbi' => 'GenBI (Generasi Baru Indonesia) adalah komunitas penerima beasiswa Bank Indonesia yang aktif dalam kegiatan sosial, edukasi, dan pengembangan diri.',
-            'Default Fallback Intent' => 'Maaf, saya tidak mengerti maksud Anda. Bisa dijelaskan lagi?'
+        // Responses berdasarkan intent name
+        $intentResponses = [
+            'Default Welcome Intent' => 'Halo! Saya chatbot GenBI Cirebon. Ada yang bisa saya bantu? 😊',
+            'kontakgenbiintent' => '📧 Email: genbicirebon@gmail.com | 📱 Instagram: @genbi.cirebon | 🌐 Website: genbicirebon.org',
+            'definisi.genbi' => 'GenBI (Generasi Baru Indonesia) adalah komunitas penerima beasiswa Bank Indonesia yang aktif dalam kegiatan sosial, edukasi, dan pengembangan diri untuk membangun Indonesia yang lebih baik.',
+            'TentangGenBIIntent' => 'GenBI (Generasi Baru Indonesia) adalah komunitas penerima beasiswa Bank Indonesia yang aktif dalam kegiatan sosial, edukasi, dan pengembangan diri untuk membangun Indonesia yang lebih baik.',
+            'Default Fallback Intent' => $this->handleFallback($queryText)
         ];
 
-        return $responses[$intentName] ?? $responses['Default Fallback Intent'];
+        return $intentResponses[$intentName] ?? $this->handleFallback($queryText);
+    }
+
+    /**
+     * Handle fallback dengan keyword detection
+     */
+    private function handleFallback($queryText)
+    {
+        $query = strtolower($queryText);
+
+        // Keyword-based responses
+        if (strpos($query, 'genbi') !== false || strpos($query, 'generasi baru') !== false) {
+            return 'GenBI (Generasi Baru Indonesia) adalah komunitas penerima beasiswa Bank Indonesia yang aktif dalam kegiatan sosial, edukasi, dan pengembangan diri untuk membangun Indonesia yang lebih baik.';
+        }
+
+        if (strpos($query, 'kontak') !== false || strpos($query, 'hubungi') !== false) {
+            return '📧 Email: genbicirebon@gmail.com | 📱 Instagram: @genbi.cirebon | 🌐 Website: genbicirebon.org';
+        }
+
+        if (strpos($query, 'beasiswa') !== false) {
+            return 'Beasiswa Bank Indonesia merupakan program pemberian bantuan dana pendidikan untuk mahasiswa berprestasi. Untuk info lebih lanjut, hubungi kontak GenBI Cirebon ya!';
+        }
+
+        if (strpos($query, 'kegiatan') !== false || strpos($query, 'program') !== false) {
+            return 'GenBI Cirebon aktif dalam berbagai kegiatan seperti workshop, seminar, kegiatan sosial, dan pengembangan soft skill. Follow Instagram @genbi.cirebon untuk update terbaru!';
+        }
+
+        if (strpos($query, 'halo') !== false || strpos($query, 'hai') !== false || strpos($query, 'hi') !== false) {
+            return 'Halo! Saya chatbot GenBI Cirebon. Ada yang bisa saya bantu? 😊';
+        }
+
+        if (strpos($query, 'terima kasih') !== false || strpos($query, 'thanks') !== false) {
+            return 'Sama-sama! Senang bisa membantu. Jangan ragu untuk bertanya lagi ya! 😊';
+        }
+
+        // Default fallback
+        return 'Maaf, saya tidak mengerti maksud Anda. Bisa dijelaskan lagi? Atau coba tanyakan tentang GenBI, beasiswa, kegiatan, atau kontak kami. 😊';
     }
 
     /**
@@ -84,7 +123,7 @@ class WebhookController extends Controller
 
             $firestore = new FirestoreClient([
                 'keyFilePath' => storage_path('app/firebase/firebase_credentials.json'),
-                'projectId' => 'your-firebase-project-id' // Tambahkan ini
+                'projectId' => 'your-firebase-project-id' // Ganti dengan project ID Anda
             ]);
 
             $collection = $firestore->collection('chat_history');

@@ -196,23 +196,74 @@
             appendMsg(text, "user");
             input.value = "";
 
+            // Generate unique session ID
+            const sessionId = "projects/genbichatbot/agent/sessions/" + Date.now() + "_" + Math.random().toString(36)
+                .substr(2, 9);
+
+            // Prepare request payload
+            const payload = {
+                session: sessionId,
+                queryInput: {
+                    text: {
+                        text: text,
+                        languageCode: "id"
+                    }
+                }
+            };
+
+            fetch("https://genbicirebon.org/dialogflow-webhook", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    },
+                    body: JSON.stringify(payload)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Response:", data);
+                    const reply = data.fulfillmentText || data.queryResult?.fulfillmentText ||
+                        "Maaf, saya tidak mengerti.";
+                    appendMsg(reply, "bot", true);
+                })
+                .catch(error => {
+                    console.error("Error:", error);
+                    appendMsg("⚠️ Terjadi kesalahan. Silakan coba lagi.", "bot");
+                });
+        }
+
+        // Alternative simpler version for testing
+        function sendChatSimple() {
+            const input = document.getElementById("chat-input");
+            const text = input.value.trim();
+            if (!text) return;
+
+            appendMsg(text, "user");
+            input.value = "";
+
+            // Simplified payload
+            const payload = {
+                queryResult: {
+                    queryText: text
+                },
+                session: "projects/genbichatbot/agent/sessions/" + Date.now()
+            };
+
             fetch("https://genbicirebon.org/dialogflow-webhook", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                         "Accept": "application/json"
                     },
-                    body: JSON.stringify({
-                        session: "projects/genbichatbot/agent/sessions/" + Date.now(),
-                        queryResult: {
-                            queryText: text // Biarkan intent detection alami oleh Dialogflow
-                        }
-                    })
+                    body: JSON.stringify(payload)
                 })
-                .then(response => {
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                    return response.json();
-                })
+                .then(response => response.json())
                 .then(data => {
                     const reply = data.fulfillmentText || "Maaf, saya tidak mengerti.";
                     appendMsg(reply, "bot", true);
