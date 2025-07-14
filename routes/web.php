@@ -66,7 +66,6 @@ Route::group(['middleware' => 'auth'], function () {
 });
 
 
-Route::post('/chat', [ChatbotController::class, 'chat']);
 Route::get('/about', [FrontendController::class, 'about'])->name('about');
 Route::get('/organization', [FrontendController::class, 'organization'])->name('organization');
 Route::get('/beasiswa', [FrontendController::class, 'beasiswa'])->name('beasiswa');
