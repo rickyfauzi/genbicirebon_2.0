@@ -188,6 +188,7 @@
             }
         }
 
+        // Replace the existing sendChat function with this simplified version
         function sendChat() {
             const input = document.getElementById("chat-input");
             const text = input.value.trim();
@@ -196,27 +197,17 @@
             appendMsg(text, "user");
             input.value = "";
 
-            // Generate unique session ID
-            const sessionId = "projects/genbichatbot/agent/sessions/" + Date.now() + "_" + Math.random().toString(36)
-                .substr(2, 9);
-
-            // Prepare request payload
+            // Simple payload format
             const payload = {
-                session: sessionId,
-                queryInput: {
-                    text: {
-                        text: text,
-                        languageCode: "id"
-                    }
-                }
+                queryText: text,
+                session: "projects/genbichatbot/agent/sessions/" + Date.now()
             };
 
             fetch("https://genbicirebon.org/dialogflow-webhook", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "Accept": "application/json",
-                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                        "Accept": "application/json"
                     },
                     body: JSON.stringify(payload)
                 })
@@ -228,14 +219,41 @@
                 })
                 .then(data => {
                     console.log("Response:", data);
-                    const reply = data.fulfillmentText || data.queryResult?.fulfillmentText ||
-                        "Maaf, saya tidak mengerti.";
+                    const reply = data.fulfillmentText || "Maaf, saya tidak mengerti.";
                     appendMsg(reply, "bot", true);
                 })
                 .catch(error => {
                     console.error("Error:", error);
                     appendMsg("⚠️ Terjadi kesalahan. Silakan coba lagi.", "bot");
                 });
+        }
+
+        // Add this for Enter key support
+        document.addEventListener("DOMContentLoaded", function() {
+            document.getElementById("chat-input").addEventListener("keydown", function(e) {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    sendChat();
+                }
+            });
+        });
+
+        // Test function for debugging
+        function testWebhook() {
+            fetch("https://genbicirebon.org/dialogflow-webhook", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    },
+                    body: JSON.stringify({
+                        queryText: "test",
+                        session: "test-session"
+                    })
+                })
+                .then(response => response.json())
+                .then(data => console.log("Test result:", data))
+                .catch(error => console.error("Test error:", error));
         }
 
         // Alternative simpler version for testing

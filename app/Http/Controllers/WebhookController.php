@@ -16,18 +16,38 @@ class WebhookController extends Controller
             $data = json_decode($request->getContent(), true);
 
             // Validasi request
-            if (!$data || !isset($data['queryResult'])) {
-                throw new \Exception('Invalid request format');
+            if (!$data) {
+                throw new \Exception('Invalid JSON format');
             }
 
-            $queryText = $data['queryResult']['queryText'] ?? '';
-            $intentName = $data['queryResult']['intent']['displayName'] ?? 'Default Fallback Intent';
+            // Handle different request formats
+            $queryText = '';
+            $intentName = 'Default Fallback Intent';
             $sessionId = $data['session'] ?? 'session-' . uniqid();
+
+            // Format 1: queryResult (dari Dialogflow webhook)
+            if (isset($data['queryResult'])) {
+                $queryText = $data['queryResult']['queryText'] ?? '';
+                $intentName = $data['queryResult']['intent']['displayName'] ?? 'Default Fallback Intent';
+            }
+            // Format 2: queryInput (dari frontend custom)
+            elseif (isset($data['queryInput'])) {
+                $queryText = $data['queryInput']['text']['text'] ?? '';
+                $intentName = 'Default Fallback Intent'; // Custom frontend selalu fallback
+            }
+            // Format 3: Direct queryText (fallback sederhana)
+            elseif (isset($data['queryText'])) {
+                $queryText = $data['queryText'];
+                $intentName = 'Default Fallback Intent';
+            } else {
+                throw new \Exception('No valid query format found');
+            }
 
             Log::info("Request Dialogflow", [
                 'query' => $queryText,
                 'intent' => $intentName,
-                'session' => $sessionId
+                'session' => $sessionId,
+                'format' => isset($data['queryResult']) ? 'queryResult' : (isset($data['queryInput']) ? 'queryInput' : 'direct')
             ]);
 
             // Dapatkan balasan berdasarkan intent atau keyword
