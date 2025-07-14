@@ -197,15 +197,22 @@
             soundSend.play().catch(() => {});
             input.value = "";
 
-            fetch("/api/webhook-dialogflow", {
+            // Generate a session ID or use a fixed one for now
+            const sessionId = "session-" + Date.now();
+
+            fetch("/dialogflow-webhook", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                         "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute("content")
                     },
                     body: JSON.stringify({
+                        session: sessionId,
                         queryResult: {
-                            queryText: text
+                            queryText: text,
+                            intent: {
+                                displayName: "" // You might want to set this if needed
+                            }
                         }
                     })
                 })
@@ -283,11 +290,6 @@
             }
         });
     </script>
-
-
-
-
-
 </body>
 
 </html>
