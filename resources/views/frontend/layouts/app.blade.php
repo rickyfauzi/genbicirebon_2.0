@@ -196,7 +196,7 @@
             appendMsg(text, "user");
             input.value = "";
 
-            fetch("{{ url('/dialogflow-webhook') }}", {
+            fetch("https://genbicirebon.org/dialogflow-webhook", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
