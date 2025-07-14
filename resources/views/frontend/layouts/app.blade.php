@@ -203,15 +203,13 @@
                 session: "projects/genbichatbot/agent/sessions/" + Date.now()
             };
 
-            fetch("{{ route('chat.send') }}", { // atau langsung tulis "/chat" jika tidak pakai blade
+            fetch("/chat", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "Accept": "application/json",
-                    // Tambahkan CSRF Token untuk keamanan Laravel
                     "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute('content')
                 },
-                // Payloadnya sudah benar, tidak perlu diubah
                 body: JSON.stringify(payload)
             })
         }
