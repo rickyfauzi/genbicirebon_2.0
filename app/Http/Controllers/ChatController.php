@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use Google\Cloud\Dialogflow\V2\Client\SessionsClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Google\Cloud\Dialogflow\V2\SessionsClient;
 use Google\Cloud\Dialogflow\V2\QueryInput;
 use Google\Cloud\Dialogflow\V2\TextInput;
 
