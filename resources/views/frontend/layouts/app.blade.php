@@ -193,28 +193,31 @@
             const text = input.value.trim();
             if (!text) return;
 
+            // Tampilkan pesan user di chat
             appendMsg(text, "user");
             input.value = "";
 
+            // Format request sesuai standar Dialogflow
+            const payload = {
+                session: "projects/genbichatbot/agent/sessions/" + Date.now(),
+                queryResult: {
+                    queryText: text,
+                    intent: {
+                        displayName: "Default Welcome Intent" // Fallback intent
+                    }
+                }
+            };
+
+            // Kirim ke Laravel
             fetch("/dialogflow-webhook", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "Accept": "application/json",
-                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
                     },
-                    body: JSON.stringify({
-                        session: "session-" + Date.now(), // Dialogflow expects a session ID
-                        queryResult: {
-                            queryText: text,
-                            intent: {
-                                displayName: ""
-                            } // Required by your PHP code
-                        }
-                    })
+                    body: JSON.stringify(payload)
                 })
                 .then(response => {
-                    if (!response.ok) throw new Error("Network error");
+                    if (!response.ok) throw new Error("Gagal terhubung ke server");
                     return response.json();
                 })
                 .then(data => {
@@ -223,7 +226,7 @@
                 })
                 .catch(error => {
                     console.error("Error:", error);
-                    appendMsg("⚠️ Gagal menghubungi server.", "bot");
+                    appendMsg("⚠️ Gagal mengirim pesan. Coba lagi nanti.", "bot");
                 });
         }
     </script>
