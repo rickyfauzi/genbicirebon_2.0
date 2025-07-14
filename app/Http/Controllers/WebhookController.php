@@ -52,26 +52,17 @@ class WebhookController extends Controller
     /**
      * Memberikan balasan berdasarkan intent
      */
-    private function replyFromIntent($intentName, $queryText, $dialogflowResponse)
+    private function replyFromIntent($intentName, $queryText)
     {
-        $responseJson = json_decode($dialogflowResponse, true);
-
-        // Ambil langsung dari Dialogflow jika tersedia
-        if (!empty($responseJson['queryResult']['fulfillmentText'])) {
-            return $responseJson['queryResult']['fulfillmentText'];
-        }
-
-        // Jika tidak ada, fallback ke daftar manual
         $responses = [
             'Default Welcome Intent' => 'Halo! Saya chatbot GenBI. Ada yang bisa saya bantu?',
             'kontakgenbiintent' => '📧 Email: genbicirebon@gmail.com | 📱 IG: @genbi.cirebon',
-            'definisi.genbi' => 'GenBI adalah komunitas penerima beasiswa Bank Indonesia.',
-            'Default Fallback Intent' => 'Maaf, saya belum paham. Bisa diulangi?',
+            'definisi.genbi' => 'GenBI (Generasi Baru Indonesia) adalah komunitas penerima beasiswa Bank Indonesia yang aktif dalam kegiatan sosial, edukasi, dan pengembangan diri.',
+            'Default Fallback Intent' => 'Maaf, saya tidak mengerti maksud Anda. Bisa dijelaskan lagi?'
         ];
 
-        return $responses[$intentName] ?? "Saya tidak mengerti pertanyaan Anda.";
+        return $responses[$intentName] ?? $responses['Default Fallback Intent'];
     }
-
 
     /**
      * Simpan riwayat chat ke Firestore
@@ -113,4 +104,3 @@ class WebhookController extends Controller
         }
     }
 }
-y
