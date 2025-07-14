@@ -4,11 +4,14 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+// =========================================================================
+// PERUBAHAN UTAMA: Namespace yang benar untuk library Google Cloud terbaru
+// =========================================================================
+use Google\Cloud\Dialogflow\V2\Client\SessionsClient;
 use Google\Cloud\Dialogflow\V2\QueryInput;
 use Google\Cloud\Dialogflow\V2\TextInput;
 use Google\Cloud\Firestore\FirestoreClient;
 use Exception;
-use Google\Cloud\Dialogflow\V2\Client\SessionsClient;
 
 class WebhookController extends Controller
 {
@@ -18,16 +21,14 @@ class WebhookController extends Controller
     public function __construct()
     {
         // Inisialisasi Firestore Client saat controller dibuat
-        // Pastikan GOOGLE_APPLICATION_CREDENTIALS sudah diatur di .env
-        if (config('services.google.credentials_path') || env('GOOGLE_APPLICATION_CREDENTIALS')) {
-            try {
-                $this->firestore = new FirestoreClient([
-                    'projectId' => $this->projectId,
-                ]);
-            } catch (Exception $e) {
-                Log::error('Firestore Initialization Failed: ' . $e->getMessage());
-                $this->firestore = null;
-            }
+        try {
+            // Konstruktor FirestoreClient secara otomatis akan mencari GOOGLE_APPLICATION_CREDENTIALS dari env
+            $this->firestore = new FirestoreClient([
+                'projectId' => $this->projectId,
+            ]);
+        } catch (Exception $e) {
+            Log::error('Firestore Initialization Failed: ' . $e->getMessage());
+            $this->firestore = null;
         }
     }
 
@@ -70,18 +71,16 @@ class WebhookController extends Controller
         $queryText = $data['queryResult']['queryText'] ?? '';
         $sessionId = last(explode('/', $data['session'])); // Ekstrak session ID
 
-        // **LOGIKA CACHING: Cek jawaban di Firestore terlebih dahulu**
-        $cachedResponse = $this->getFromCache($queryText, $intentName);
+        $cachedResponse = $this->getFromCache($queryText);
         if ($cachedResponse) {
             $this->logToFirestore($sessionId, $queryText, $cachedResponse, $intentName, 'cache');
             return response()->json(['fulfillmentText' => $cachedResponse]);
         }
 
-        // Jika tidak ada di cache, buat jawaban dinamis
         $responseText = $this->getResponseForIntent($intentName, $queryText, $data);
 
-        // Simpan jawaban baru ke Firestore untuk logging
         $this->logToFirestore($sessionId, $queryText, $responseText, $intentName, 'webhook');
+        $this->saveToCache($queryText, $responseText); // Simpan ke cache jika jawaban baru
 
         return response()->json(['fulfillmentText' => $responseText]);
     }
@@ -101,18 +100,16 @@ class WebhookController extends Controller
         $queryText = $validated['queryText'];
         $sessionId = $validated['sessionId'];
 
-        // **LOGIKA CACHING: Cek jawaban di Firestore terlebih dahulu**
         $cachedResponse = $this->getFromCache($queryText);
         if ($cachedResponse) {
-            $this->logToFirestore($sessionId, $queryText, $cachedResponse, 'N/A', 'cache');
+            $this->logToFirestore($sessionId, $queryText, $cachedResponse, 'N/A from Cache', 'cache');
             return response()->json(['fulfillmentText' => $cachedResponse, 'source' => 'cache']);
         }
 
-        // Jika tidak ada di cache, hubungi Dialogflow
         $dialogflowResponse = $this->detectIntent($this->projectId, $sessionId, $queryText, 'id');
 
-        // Simpan jawaban baru ke Firestore untuk logging
         $this->logToFirestore($sessionId, $queryText, $dialogflowResponse['fulfillmentText'], $dialogflowResponse['intentName'], 'dialogflow');
+        $this->saveToCache($queryText, $dialogflowResponse['fulfillmentText']); // Simpan ke cache jika jawaban baru
 
         return response()->json([
             'fulfillmentText' => $dialogflowResponse['fulfillmentText'],
@@ -126,15 +123,12 @@ class WebhookController extends Controller
      */
     private function getResponseForIntent($intentName, $queryText, $data)
     {
-        // Di sini Anda bisa menambahkan logika kustom.
         switch ($intentName) {
             case 'definisi.genbi':
                 return "Ini jawaban dari Webhook: GenBI (Generasi Baru Indonesia) adalah komunitas elit penerima beasiswa Bank Indonesia yang dibina untuk menjadi pemimpin masa depan.";
             case 'kontakgenbiintent':
                 return "Anda bisa menghubungi kami via Instagram @genbi.cirebon atau email genbicirebon@gmail.com. (Info dari Webhook).";
-                // Tambahkan case lain untuk intent yang membutuhkan logika backend
             default:
-                // Jika tidak ada logika khusus, gunakan response default dari Dialogflow
                 return $data['queryResult']['fulfillmentText'] ?? "Maaf, saya belum mengerti pertanyaan itu.";
         }
     }
@@ -182,7 +176,7 @@ class WebhookController extends Controller
                 'question' => $question,
                 'answer' => $answer,
                 'intent' => $intentName,
-                'source' => $source, // 'dialogflow', 'webhook', 'cache'
+                'source' => $source,
                 'timestamp' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
             ]);
         } catch (Exception $e) {
@@ -191,29 +185,31 @@ class WebhookController extends Controller
     }
 
     /**
-     * Checks for a relevant answer in the Firestore cache.
-     * Caching key is a normalized version of the question text.
+     * Creates a normalized key for caching.
      */
-    private function getFromCache($question, $intentName = null)
+    private function getCacheKey($question)
+    {
+        return strtolower(trim(preg_replace('/[^a-zA-Z0-9\s]/', '', $question)));
+    }
+
+    /**
+     * Checks for a relevant answer in the Firestore cache.
+     */
+    private function getFromCache($question)
     {
         if (!$this->firestore) {
-            Log::warning('Firestore client not available. Skipping cache check.');
             return null;
         }
 
-        // Normalisasi pertanyaan untuk dijadikan kunci cache
-        $cacheKey = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '', $question)));
+        $cacheKey = $this->getCacheKey($question);
         if (empty($cacheKey)) return null;
 
         try {
-            // Collection untuk cache bisa berbeda, misal 'chat_cache'
             $cacheRef = $this->firestore->collection('chat_cache')->document($cacheKey);
             $snapshot = $cacheRef->snapshot();
 
             if ($snapshot->exists()) {
                 Log::info('Cache hit!', ['key' => $cacheKey]);
-                // Anda bisa menambahkan logika relevansi di sini,
-                // misal: cek apakah intent-nya sama jika tersedia
                 return $snapshot->data()['answer'];
             }
 
@@ -222,6 +218,31 @@ class WebhookController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to get from cache: ' . $e->getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Saves a new question-answer pair to the cache.
+     */
+    private function saveToCache($question, $answer)
+    {
+        if (!$this->firestore || empty($answer)) {
+            return;
+        }
+
+        $cacheKey = $this->getCacheKey($question);
+        if (empty($cacheKey)) return;
+
+        try {
+            $cacheRef = $this->firestore->collection('chat_cache')->document($cacheKey);
+            $cacheRef->set([
+                'question' => $question,
+                'answer' => $answer,
+                'last_updated' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
+            ]);
+            Log::info('Saved to cache.', ['key' => $cacheKey]);
+        } catch (Exception $e) {
+            Log::error('Failed to save to cache: ' . $e->getMessage());
         }
     }
 }
