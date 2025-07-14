@@ -17,6 +17,7 @@ use App\Http\Controllers\PembinaController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\FrontendController;
 use App\Http\Controllers\ChatbotController;
+use App\Http\Controllers\ChatController;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Auth\Events\PasswordReset;
@@ -38,6 +39,8 @@ use App\Http\Controllers\WebhookController;
 Route::post('/dialogflow-webhook', [WebhookController::class, 'handle'])
     ->name('dialogflow.webhook')
     ->withoutMiddleware(['csrf']);
+
+Route::post('/chat', [ChatController::class, 'detectIntent'])->name('chat.send');
 
 /** for side bar menu active */
 function set_active($route)

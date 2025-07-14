@@ -49,7 +49,7 @@ jobs:
             **/.env*
             **/.git/**
             **/storage/**
-            **/vendor/**
+
             **/public/**
             **/database/**
             **/config/**
