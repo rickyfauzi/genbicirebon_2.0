@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use Google\Cloud\Dialogflow\V2\Client\SessionsClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Google\Cloud\Dialogflow\V2\SessionsClient; // Hapus \Client\
 use Google\Cloud\Dialogflow\V2\QueryInput;
 use Google\Cloud\Dialogflow\V2\TextInput;
 
@@ -28,7 +28,8 @@ class ChatController extends Controller
             $sessionId = $request->input('session', uniqid('session-', true));
 
             // Path ke file credentials Anda
-            $credentialsPath = storage_path('storage/app/genbi-key.json');
+            // Path ke file credentials Anda
+            $credentialsPath = storage_path('app/genbi-key.json'); // Hapus 'storage/' di dalam fungsi
             if (!file_exists($credentialsPath)) {
                 throw new \Exception('File Firebase credentials tidak ditemukan.');
             }
@@ -39,7 +40,7 @@ class ChatController extends Controller
             ];
 
             $sessionsClient = new SessionsClient($config);
-            $projectId = 'your-firebase-project-id'; // GANTI DENGAN PROJECT ID ANDA
+            $projectId = 'chatbotgenbi'; // GANTI DENGAN PROJECT ID ANDA
 
             // Format nama session yang dibutuhkan oleh Dialogflow
             $sessionName = $sessionsClient->sessionName($projectId, $sessionId);

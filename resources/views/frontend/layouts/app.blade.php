@@ -196,22 +196,49 @@
 
             appendMsg(text, "user");
             input.value = "";
+            soundSend.play().catch(() => {}); // Mainkan suara saat mengirim
 
-            // Simple payload format
             const payload = {
                 queryText: text,
-                session: "projects/genbichatbot/agent/sessions/" + Date.now()
+                // Kirim session ID yang unik untuk setiap percakapan
+                // Anda bisa menyimpannya di localStorage jika ingin percakapan berlanjut
+                session: "web-session-" + (localStorage.getItem('chat_session_id') || Date.now())
             };
 
+            // Jika belum ada session id, buat dan simpan
+            if (!localStorage.getItem('chat_session_id')) {
+                localStorage.setItem('chat_session_id', Date.now());
+            }
+
             fetch("/chat", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                },
-                body: JSON.stringify(payload)
-            })
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    },
+                    body: JSON.stringify(payload)
+                })
+                .then(response => {
+                    // Cek jika response dari server tidak OK (misal: error 500)
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json(); // Ubah response menjadi format JSON
+                })
+                .then(data => {
+                    // Ambil teks balasan dari data JSON
+                    console.log("Response from server:", data); // Untuk debugging
+                    const reply = data.fulfillmentText || "Maaf, saya tidak mendapat balasan.";
+
+                    // Tampilkan balasan dari bot dengan efek mengetik
+                    appendMsg(reply, "bot", true);
+                })
+                .catch(error => {
+                    // Tangani jika terjadi error koneksi atau error dari server
+                    console.error("Fetch Error:", error);
+                    appendMsg("⚠️ Maaf, terjadi gangguan. Silakan coba lagi nanti.", "bot");
+                });
         }
 
         // Add this for Enter key support
