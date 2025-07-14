@@ -54,8 +54,16 @@ class WebhookController extends Controller
     /**
      * Memberikan balasan berdasarkan intent
      */
-    private function replyFromIntent($intentName, $queryText)
+    private function replyFromIntent($intentName, $queryText, $dialogflowResponse)
     {
+        $responseJson = json_decode($dialogflowResponse, true);
+
+        // Ambil langsung dari Dialogflow jika tersedia
+        if (!empty($responseJson['queryResult']['fulfillmentText'])) {
+            return $responseJson['queryResult']['fulfillmentText'];
+        }
+
+        // Jika tidak ada, fallback ke daftar manual
         $responses = [
             'Default Welcome Intent' => 'Halo! Saya chatbot GenBI. Ada yang bisa saya bantu?',
             'kontakgenbiintent' => '📧 Email: genbicirebon@gmail.com | 📱 IG: @genbi.cirebon',
@@ -65,6 +73,7 @@ class WebhookController extends Controller
 
         return $responses[$intentName] ?? "Saya tidak mengerti pertanyaan Anda.";
     }
+
 
     /**
      * Simpan riwayat chat ke Firestore
