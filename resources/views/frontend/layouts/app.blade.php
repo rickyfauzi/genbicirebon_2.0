@@ -193,31 +193,24 @@
             const text = input.value.trim();
             if (!text) return;
 
-            // Tampilkan pesan user di chat
             appendMsg(text, "user");
             input.value = "";
 
-            // Format request sesuai standar Dialogflow
-            const payload = {
-                session: "projects/genbichatbot/agent/sessions/" + Date.now(),
-                queryResult: {
-                    queryText: text,
-                    intent: {
-                        displayName: "Default Welcome Intent" // Fallback intent
-                    }
-                }
-            };
-
-            // Kirim ke Laravel
-            fetch("/dialogflow-webhook", {
+            fetch("{{ url('/dialogflow-webhook') }}", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
+                        "Accept": "application/json"
                     },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify({
+                        session: "projects/genbichatbot/agent/sessions/" + Date.now(),
+                        queryResult: {
+                            queryText: text // Biarkan intent detection alami oleh Dialogflow
+                        }
+                    })
                 })
                 .then(response => {
-                    if (!response.ok) throw new Error("Gagal terhubung ke server");
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     return response.json();
                 })
                 .then(data => {
@@ -226,7 +219,7 @@
                 })
                 .catch(error => {
                     console.error("Error:", error);
-                    appendMsg("⚠️ Gagal mengirim pesan. Coba lagi nanti.", "bot");
+                    appendMsg("⚠️ Terjadi kesalahan. Silakan coba lagi.", "bot");
                 });
         }
     </script>
