@@ -194,34 +194,35 @@
             if (!text) return;
 
             appendMsg(text, "user");
-            soundSend.play().catch(() => {});
             input.value = "";
-
-            // Generate a session ID or use a fixed one for now
-            const sessionId = "session-" + Date.now();
 
             fetch("/dialogflow-webhook", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute("content")
+                        "Accept": "application/json",
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
                     },
                     body: JSON.stringify({
-                        session: sessionId,
+                        session: "session-" + Date.now(), // Dialogflow expects a session ID
                         queryResult: {
                             queryText: text,
                             intent: {
-                                displayName: "" // You might want to set this if needed
-                            }
+                                displayName: ""
+                            } // Required by your PHP code
                         }
                     })
                 })
-                .then(res => res.json())
+                .then(response => {
+                    if (!response.ok) throw new Error("Network error");
+                    return response.json();
+                })
                 .then(data => {
-                    const reply = data.fulfillmentText || "Bot tidak bisa menjawab saat ini.";
+                    const reply = data.fulfillmentText || "Maaf, saya tidak mengerti.";
                     appendMsg(reply, "bot", true);
                 })
-                .catch(() => {
+                .catch(error => {
+                    console.error("Error:", error);
                     appendMsg("⚠️ Gagal menghubungi server.", "bot");
                 });
         }
