@@ -276,7 +276,7 @@
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {
-            const loadingSpinner = document.getElementById('loading-spinner');
+            const loadingSpin ner = document.getElementById('loading-spinner');
             loadingSpinner.style.display = 'none';
         });
 
