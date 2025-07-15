@@ -97,23 +97,21 @@
 
         @yield('content')
         <!-- Floating Chat Icon -->
-        <!-- Floating Chat Icon -->
-        <div id="chat-float" style="position: fixed; bottom: 20px; right: 20px; cursor: pointer; z-index: 10000;">
+        <div id="chat-float">
             <img src="{{ asset('assets2/images/chatbot.png') }}" alt="chat" width="60" height="60">
         </div>
 
-        <!-- Chat Window -->
-        <div id="chat-window" class="shadow rounded bg-white p-3">
-            <div style="max-height: 350px; overflow-y: auto;" id="chat-messages"></div>
-            <div class="d-flex mt-2">
-                <input type="text" id="chat-input" class="form-control me-2" placeholder="Ketik pesan...">
-                <button class="btn btn-primary" onclick="sendChat()">Kirim</button>
+        <div id="chat-window" class="shadow-lg border rounded bg-white">
+            <div class="p-2 bg-primary text-white d-flex justify-content-between align-items-center">
+                <strong>Chatbot GenBI</strong>
+                <button class="btn btn-sm btn-light" onclick="toggleChat()">&times;</button>
+            </div>
+            <div id="chat-messages"></div>
+            <div class="p-2 border-top d-flex">
+                <input type="text" id="chat-input" class="form-control" placeholder="Tulis pesan...">
+                <button class="btn btn-primary ms-2" onclick="sendChat()">Kirim</button>
             </div>
         </div>
-
-
-
-
 
 
     </main>
@@ -162,8 +160,8 @@
             const avatar = document.createElement("img");
             avatar.className = "avatar";
             avatar.src = sender === "user" ?
-                "https://static.vecteezy.com/system/resources/thumbnails/011/490/381/small_2x/happy-smiling-young-man-avatar-3d-portrait-of-a-man-cartoon-character-people-illustration-isolated-on-white-background-vector.jpg" :
-                "{{ asset('assets2/images/logo.png') }}";
+                "http://static.vecteezy.com/system/resources/thumbnails/011/490/381/small_2x/happy-smiling-young-man-avatar-3d-portrait-of-a-man-cartoon-character-people-illustration-isolated-on-white-background-vector.jpg" :
+                "assets2/images/logo.png";
 
             const bubble = document.createElement("div");
             bubble.className = "msg-bubble bg-" + (sender === "user" ? "primary text-white" : "light");
@@ -190,42 +188,78 @@
             }
         }
 
+        // Replace the existing sendChat function with this simplified version
         function sendChat() {
             const input = document.getElementById("chat-input");
-            const message = input.value.trim();
-            if (!message) return;
+            const text = input.value.trim();
+            if (!text) return;
 
-            appendMsg(message, "user");
-            soundSend.play().catch(() => {});
+            appendMsg(text, "user");
             input.value = "";
 
-            fetch("/chatbot/message", {
+            const payload = {
+                queryText: text,
+                session: localStorage.getItem('chat_session') || 'session-' + Date.now()
+            };
+
+            // Simpan session ID jika belum ada
+            if (!localStorage.getItem('chat_session')) {
+                localStorage.setItem('chat_session', payload.session);
+            }
+
+            fetch("/chat", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "X-CSRF-TOKEN": "{{ csrf_token() }}"
+                        "Accept": "application/json",
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
                     },
-                    body: JSON.stringify({
-                        message
-                    })
+                    body: JSON.stringify(payload)
                 })
-                .then(res => res.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    appendMsg(data.reply, "bot", true);
+                    console.log("Dialogflow Response:", data);
+                    const reply = data.fulfillmentText || "Maaf, saya tidak mendapat balasan.";
+                    appendMsg(reply, "bot", true);
                 })
-                .catch(err => {
-                    console.error(err);
-                    appendMsg("Maaf, terjadi kesalahan.", "bot");
+                .catch(error => {
+                    console.error("Error:", error);
+                    appendMsg("⚠️ Gangguan sementara. Silakan refresh halaman atau coba lagi nanti.", "bot");
                 });
         }
 
-        // Enter key support
-        document.getElementById("chat-input").addEventListener("keydown", function(e) {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                sendChat();
-            }
+        // Add this for Enter key support
+        document.addEventListener("DOMContentLoaded", function() {
+            document.getElementById("chat-input").addEventListener("keydown", function(e) {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    sendChat();
+                }
+            });
         });
+
+        // Test function for debugging
+        function testWebhook() {
+            fetch("https://genbicirebon.org/dialogflow-webhook", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    },
+                    body: JSON.stringify({
+                        queryText: "test",
+                        session: "test-session"
+                    })
+                })
+                .then(response => response.json())
+                .then(data => console.log("Test result:", data))
+                .catch(error => console.error("Test error:", error));
+        }
     </script>
 
 
@@ -240,7 +274,7 @@
             new WOW().init();
 
             // Script untuk FAQ
-            const faqTitles = document.querySelectorAll('.faq   -title');
+            const faqTitles = document.querySelectorAll('.faq-title');
             faqTitles.forEach(title => {
                 title.addEventListener('click', () => {
                     const collapseID = title.getAttribute('data-target');
