@@ -189,49 +189,298 @@
         }
 
         // Replace the existing sendChat function with this simplified version
-        function sendChat() {
-            const input = document.getElementById("chat-input");
-            const text = input.value.trim();
-            if (!text) return;
+        // Chatbot JavaScript - Versi yang lebih robust
+        const ChatBot = {
+            init() {
+                this.setupEventListeners();
+                this.setupSounds();
+                this.welcomeMessage();
+            },
 
-            appendMsg(text, "user");
-            input.value = "";
+            setupEventListeners() {
+                // Chat float button
+                document.getElementById("chat-float").addEventListener("click", () => this.toggleChat());
 
-            const payload = {
-                queryText: text,
-                session: localStorage.getItem('chat_session') || 'session-' + Date.now()
-            };
-
-            // Simpan session ID jika belum ada
-            if (!localStorage.getItem('chat_session')) {
-                localStorage.setItem('chat_session', payload.session);
-            }
-
-            fetch("/chat", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Accept": "application/json",
-                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
-                    },
-                    body: JSON.stringify(payload)
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+                // Enter key support
+                document.getElementById("chat-input").addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") {
+                        e.preventDefault();
+                        this.sendChat();
                     }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log("Dialogflow Response:", data);
-                    const reply = data.fulfillmentText || "Maaf, saya tidak mendapat balasan.";
-                    appendMsg(reply, "bot", true);
-                })
-                .catch(error => {
-                    console.error("Error:", error);
-                    appendMsg("⚠️ Gangguan sementara. Silakan refresh halaman atau coba lagi nanti.", "bot");
                 });
+
+                // Close button di chat window
+                document.querySelector('#chat-window button').addEventListener('click', () => this.toggleChat());
+            },
+
+            setupSounds() {
+                this.soundSend = new Audio("/sounds/send.mp3");
+                this.soundReceive = new Audio("/sounds/receive.mp3");
+
+                // Disable sound errors
+                this.soundSend.onerror = () => console.warn("Send sound not available");
+                this.soundReceive.onerror = () => console.warn("Receive sound not available");
+            },
+
+            welcomeMessage() {
+                // Tampilkan welcome message saat pertama kali dibuka
+                const welcomeShown = localStorage.getItem('chatbot_welcome_shown');
+                if (!welcomeShown) {
+                    setTimeout(() => {
+                        this.appendMsg('Halo! Saya chatbot GenBI Cirebon. Ada yang bisa saya bantu? 😊', 'bot',
+                            true);
+                        localStorage.setItem('chatbot_welcome_shown', 'true');
+                    }, 1000);
+                }
+            },
+
+            toggleChat() {
+                const win = document.getElementById("chat-window");
+                const isVisible = win.style.display === "block";
+                win.style.display = isVisible ? "none" : "block";
+
+                if (!isVisible) {
+                    document.getElementById("chat-input").focus();
+                }
+            },
+
+            appendMsg(text, sender, isTyping = false) {
+                const row = document.createElement("div");
+                row.className = `msg-row ${sender === "user" ? "msg-user" : "msg-bot"}`;
+
+                const avatar = document.createElement("img");
+                avatar.className = "avatar";
+                avatar.src = sender === "user" ?
+                    "http://static.vecteezy.com/system/resources/thumbnails/011/490/381/small_2x/happy-smiling-young-man-avatar-3d-portrait-of-a-man-cartoon-character-people-illustration-isolated-on-white-background-vector.jpg" :
+                    "assets2/images/logo.png";
+
+                const bubble = document.createElement("div");
+                bubble.className = `msg-bubble bg-${sender === "user" ? "primary text-white" : "light"}`;
+                bubble.textContent = "";
+
+                if (sender === "bot") {
+                    row.appendChild(avatar);
+                    row.appendChild(bubble);
+                } else {
+                    row.appendChild(bubble);
+                    row.appendChild(avatar);
+                }
+
+                document.getElementById("chat-messages").appendChild(row);
+                this.scrollToBottom();
+
+                if (isTyping && sender === "bot") {
+                    this.typeMessage(bubble, text);
+                } else {
+                    bubble.textContent = text;
+                    if (sender === "user") {
+                        this.soundSend.play().catch(() => {});
+                    }
+                }
+            },
+
+            typeMessage(element, text) {
+                let i = 0;
+                const typing = setInterval(() => {
+                    element.textContent += text.charAt(i);
+                    i++;
+                    if (i >= text.length) {
+                        clearInterval(typing);
+                        this.soundReceive.play().catch(() => {});
+                    }
+                }, 30);
+            },
+
+            scrollToBottom() {
+                const chatMessages = document.getElementById("chat-messages");
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            },
+
+            showLoading() {
+                const loadingMsg = document.createElement("div");
+                loadingMsg.className = "msg-row msg-bot";
+                loadingMsg.id = "loading-message";
+                loadingMsg.innerHTML = `
+            <img class="avatar" src="assets2/images/logo.png" alt="bot">
+            <div class="msg-bubble bg-light">
+                <div class="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        `;
+
+                document.getElementById("chat-messages").appendChild(loadingMsg);
+                this.scrollToBottom();
+            },
+
+            hideLoading() {
+                const loadingElement = document.getElementById("loading-message");
+                if (loadingElement) {
+                    loadingElement.remove();
+                }
+            },
+
+            async sendChat() {
+                const input = document.getElementById("chat-input");
+                const text = input.value.trim();
+
+                if (!text) return;
+
+                // Tampilkan pesan user
+                this.appendMsg(text, "user");
+                input.value = "";
+                input.disabled = true;
+
+                // Tampilkan loading
+                this.showLoading();
+
+                const payload = {
+                    queryText: text,
+                    session: this.getSessionId()
+                };
+
+                try {
+                    const response = await fetch("/chat", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                            "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    console.log("Response Status:", response.status);
+
+                    this.hideLoading();
+                    input.disabled = false;
+                    input.focus();
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    const data = await response.json();
+                    console.log("Server Response:", data);
+
+                    const reply = data.fulfillmentText || "Maaf, saya tidak mendapat balasan.";
+                    this.appendMsg(reply, "bot", true);
+
+                    // Log untuk debugging
+                    if (data.source) {
+                        console.log(`Response source: ${data.source}`);
+                    }
+
+                } catch (error) {
+                    console.error("Chat Error:", error);
+
+                    this.hideLoading();
+                    input.disabled = false;
+                    input.focus();
+
+                    this.appendMsg("⚠️ Gangguan sementara. Silakan refresh halaman atau coba lagi nanti.", "bot");
+                }
+            },
+
+            getSessionId() {
+                let sessionId = localStorage.getItem('chat_session');
+                if (!sessionId) {
+                    sessionId = 'web-session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                    localStorage.setItem('chat_session', sessionId);
+                }
+                return sessionId;
+            },
+
+            // Fungsi untuk testing
+            async testConnection() {
+                try {
+                    const response = await fetch("/test-dialogflow");
+                    const data = await response.json();
+
+                    console.log("Test Results:", data);
+
+                    if (data.all_passed) {
+                        alert("✅ Semua test berhasil! Chatbot siap digunakan.");
+                    } else {
+                        alert("⚠️ Beberapa test gagal. Cek console untuk detail.");
+                    }
+
+                } catch (error) {
+                    console.error("Test Error:", error);
+                    alert("❌ Test gagal: " + error.message);
+                }
+            }
+        };
+
+        // Inisialisasi chatbot saat DOM ready
+        document.addEventListener("DOMContentLoaded", function() {
+            ChatBot.init();
+        });
+
+        // Expose functions to global scope for backward compatibility
+        window.toggleChat = () => ChatBot.toggleChat();
+        window.sendChat = () => ChatBot.sendChat();
+        window.testConnection = () => ChatBot.testConnection();
+
+        // Add CSS for loading indicator
+        const style = document.createElement('style');
+        style.textContent = `
+    .typing-indicator {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        padding: 5px 0;
+    }
+    
+    .typing-indicator span {
+        width: 6px;
+        height: 6px;
+        background-color: #6c757d;
+        border-radius: 50%;
+        animation: typing 1.4s infinite ease-in-out;
+    }
+    
+    .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+    .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0s; }
+    
+    @keyframes typing {
+        0%, 80%, 100% {
+            transform: scale(0.8);
+            opacity: 0.5;
         }
+        40% {
+            transform: scale(1.2);
+            opacity: 1;
+        }
+    }
+    
+    #chat-input:disabled {
+        background-color: #f8f9fa;
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    
+    #chat-window {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        border-radius: 10px;
+        overflow: hidden;
+    }
+    
+    #chat-messages {
+        max-height: 350px;
+        overflow-y: auto;
+        padding: 10px;
+    }
+    
+    .msg-bubble {
+        word-wrap: break-word;
+        line-height: 1.4;
+    }
+`;
+        document.head.appendChild(style);
 
         // Add this for Enter key support
         document.addEventListener("DOMContentLoaded", function() {
@@ -274,7 +523,7 @@
             new WOW().init();
 
             // Script untuk FAQ
-            const faqTitles = document.querySelectorAll('.faq-title');
+            const faqTitles = document.querySelectorAll('.faq   -title');
             faqTitles.forEach(title => {
                 title.addEventListener('click', () => {
                     const collapseID = title.getAttribute('data-target');

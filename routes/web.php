@@ -37,10 +37,33 @@ use App\Http\Controllers\WebhookController;
 */
 
 Route::post('/chat', [ChatController::class, 'detectIntent'])->name('chat.send');
+
+// Route untuk webhook Dialogflow (dari Dialogflow Console)
 Route::post('/dialogflow-webhook', [WebhookController::class, 'handle'])
     ->name('dialogflow.webhook')
     ->withoutMiddleware(['csrf']);
 
+// Route testing
+Route::get('/test-dialogflow', [ChatController::class, 'testConnection'])->name('test.dialogflow');
+
+// Route untuk debugging
+Route::get('/debug-chat', function () {
+    return view('debug-chat');
+})->name('debug.chat');
+
+// Route test sederhana
+Route::get('/test-webhook', function () {
+    return response()->json([
+        'status' => 'OK',
+        'message' => 'Webhook endpoints tersedia',
+        'routes' => [
+            'chat' => route('chat.send'),
+            'webhook' => route('dialogflow.webhook'),
+            'test' => route('test.dialogflow')
+        ],
+        'timestamp' => now()
+    ]);
+});
 
 
 /** for side bar menu active */
