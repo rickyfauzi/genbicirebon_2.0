@@ -97,15 +97,20 @@
 
         @yield('content')
         <!-- Floating Chat Icon -->
-        <div id="chat-float">
+        <!-- Floating Chat Icon -->
+        <div id="chat-float" style="position: fixed; bottom: 20px; right: 20px; cursor: pointer; z-index: 10000;">
             <img src="{{ asset('assets2/images/chatbot.png') }}" alt="chat" width="60" height="60">
         </div>
 
-        <div>
-            <input type="text" id="chat-input" placeholder="Ketik pesan..." />
-            <button onclick="sendMessage()">Kirim</button>
-            <div id="chat-output"></div>
+        <!-- Chat Window -->
+        <div id="chat-window" class="shadow rounded bg-white p-3">
+            <div style="max-height: 350px; overflow-y: auto;" id="chat-messages"></div>
+            <div class="d-flex mt-2">
+                <input type="text" id="chat-input" class="form-control me-2" placeholder="Ketik pesan...">
+                <button class="btn btn-primary" onclick="sendChat()">Kirim</button>
+            </div>
         </div>
+
 
 
 
@@ -138,27 +143,7 @@
     <script src="{{ asset('assets2/js/chatbot .js') }}"></script>
 
 
-    <script>
-        function sendMessage() {
-            const message = document.getElementById('chat-input').value;
 
-            fetch('/chatbot/message', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    },
-                    body: JSON.stringify({
-                        message
-                    })
-                })
-                .then(res => res.json())
-                .then(data => {
-                    document.getElementById('chat-output').innerHTML += '<p><strong>Bot:</strong> ' + data.reply +
-                        '</p>';
-                });
-        }
-    </script>
     <script>
         const soundSend = new Audio("/sounds/send.mp3");
         const soundReceive = new Audio("/sounds/receive.mp3");
@@ -177,8 +162,8 @@
             const avatar = document.createElement("img");
             avatar.className = "avatar";
             avatar.src = sender === "user" ?
-                "http://static.vecteezy.com/system/resources/thumbnails/011/490/381/small_2x/happy-smiling-young-man-avatar-3d-portrait-of-a-man-cartoon-character-people-illustration-isolated-on-white-background-vector.jpg" :
-                "assets2/images/logo.png";
+                "https://static.vecteezy.com/system/resources/thumbnails/011/490/381/small_2x/happy-smiling-young-man-avatar-3d-portrait-of-a-man-cartoon-character-people-illustration-isolated-on-white-background-vector.jpg" :
+                "{{ asset('assets2/images/logo.png') }}";
 
             const bubble = document.createElement("div");
             bubble.className = "msg-bubble bg-" + (sender === "user" ? "primary text-white" : "light");
@@ -205,36 +190,42 @@
             }
         }
 
-        // Replace the existing sendChat function with this simplified version
+        function sendChat() {
+            const input = document.getElementById("chat-input");
+            const message = input.value.trim();
+            if (!message) return;
 
+            appendMsg(message, "user");
+            soundSend.play().catch(() => {});
+            input.value = "";
 
-        // Add this for Enter key support
-        document.addEventListener("DOMContentLoaded", function() {
-            document.getElementById("chat-input").addEventListener("keydown", function(e) {
-                if (e.key === "Enter") {
-                    e.preventDefault();
-                    sendChat();
-                }
-            });
-        });
-
-        // Test function for debugging
-        function testWebhook() {
-            fetch("https://genbicirebon.org/dialogflow-webhook", {
+            fetch("/chatbot/message", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "Accept": "application/json"
+                        "X-CSRF-TOKEN": "{{ csrf_token() }}"
                     },
                     body: JSON.stringify({
-                        queryText: "test",
-                        session: "test-session"
+                        message
                     })
                 })
-                .then(response => response.json())
-                .then(data => console.log("Test result:", data))
-                .catch(error => console.error("Test error:", error));
+                .then(res => res.json())
+                .then(data => {
+                    appendMsg(data.reply, "bot", true);
+                })
+                .catch(err => {
+                    console.error(err);
+                    appendMsg("Maaf, terjadi kesalahan.", "bot");
+                });
         }
+
+        // Enter key support
+        document.getElementById("chat-input").addEventListener("keydown", function(e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                sendChat();
+            }
+        });
     </script>
 
 

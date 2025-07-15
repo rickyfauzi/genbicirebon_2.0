@@ -15,6 +15,7 @@ use App\Http\Controllers\AnggotaController;
 use App\Http\Controllers\SekumController;
 use App\Http\Controllers\PembinaController;
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\FrontendController;
 // use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\ChatController;
