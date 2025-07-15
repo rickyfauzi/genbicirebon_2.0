@@ -27,8 +27,7 @@ class ChatController extends Controller
 
             putenv("GOOGLE_APPLICATION_CREDENTIALS=$credentialsPath");
 
-            // 2. Prepare Dialogflow Request
-            $projectId = 'learned-fusion-460215-a3';
+            $projectId = 'genbichatbot-gjxn';
             $sessionId = $request->input('session', 'web-session-' . uniqid());
             $queryText = $request->input('queryText');
 
