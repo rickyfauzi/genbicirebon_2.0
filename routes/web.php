@@ -36,7 +36,7 @@ use App\Http\Controllers\WebhookController;
 |
 */
 
-Route::post('/chatbot', [ChatbotController::class, 'handleChat'])->name('chatbot.handle');
+Route::post('/chatbot', [ChatbotController::class, 'handleChat']);
 
 /** for side bar menu active */
 function set_active($route)
