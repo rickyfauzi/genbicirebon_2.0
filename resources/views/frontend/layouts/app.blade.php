@@ -231,7 +231,7 @@
     <!-- Your existing scripts remain the same -->
     <!-- ... -->
 
-    @include('frontend.template.header')
+    @include('frontend.template.footer')
     <!-- Updated Chat Script -->
     <script>
         // Session ID for tracking conversation
