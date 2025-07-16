@@ -41,17 +41,24 @@
     <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/magnific-popup.js/1.1.0/magnific-popup.min.css" />
 
+
+
     <style>
+        /* Update your existing styles with these additions */
         #chat-window {
             position: fixed;
             bottom: 90px;
             right: 20px;
-            width: 300px;
-            max-height: 500px;
+            width: 350px;
+            /* Slightly wider for better chat experience */
+            height: 450px;
+            max-height: 80vh;
             overflow-y: auto;
             z-index: 9999;
             display: none;
             transition: all 0.3s ease-in-out;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
         }
 
         .msg-row {
@@ -73,197 +80,361 @@
             height: 30px;
             border-radius: 50%;
             margin-right: 8px;
+            object-fit: cover;
         }
 
         .msg-bubble {
-            padding: 10px;
+            padding: 10px 15px;
             border-radius: 15px;
-            max-width: 70%;
+            max-width: 80%;
+            word-wrap: break-word;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .msg-bubble.user {
+            background-color: #0d6efd;
+            color: white;
+            border-bottom-right-radius: 5px;
+        }
+
+        .msg-bubble.bot {
+            background-color: #f1f1f1;
+            color: #333;
+            border-bottom-left-radius: 5px;
+        }
+
+        #chat-messages {
+            padding: 10px;
+            height: calc(100% - 110px);
+            overflow-y: auto;
+            background-color: #fff;
+        }
+
+        #chat-input-container {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            padding: 10px;
+            background: white;
+            border-top: 1px solid #eee;
+        }
+
+        #chat-float {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            cursor: pointer;
+            z-index: 9998;
+            transition: all 0.3s ease;
+        }
+
+        #chat-float:hover {
+            transform: scale(1.1);
+        }
+
+        .typing-indicator {
+            display: flex;
+            padding: 10px 15px;
+        }
+
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            margin: 0 2px;
+            background-color: #ccc;
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+
+        .typing-dot:nth-child(1) {
+            animation-delay: 0s;
+        }
+
+        .typing-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+
+            0%,
+            60%,
+            100% {
+                transform: translateY(0);
+            }
+
+            30% {
+                transform: translateY(-5px);
+            }
+        }
+
+        .quick-replies {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .quick-reply {
+            background-color: #e9ecef;
+            border: none;
+            border-radius: 15px;
+            padding: 5px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-reply:hover {
+            background-color: #dee2e6;
         }
     </style>
 </head>
 
 <body>
+    <!-- Your existing body content remains the same until the chat elements -->
+    <!-- ... -->
 
-    <div class="loading-spinner" id="loading-spinner">
-        <div class="spinner"></div>
+    <!-- Floating Chat Icon -->
+    <div id="chat-float">
+        <img src="{{ asset('assets2/images/chatbot.png') }}" alt="chat" width="60" height="60">
     </div>
 
-    <!-- Konten Halaman Web -->
-
-    @include('frontend.template.header')
-
-    <main>
-
-        @yield('content')
-        <!-- Floating Chat Icon -->
-        <div id="chat-float">
-            <img src="{{ asset('assets2/images/chatbot.png') }}" alt="chat" width="60" height="60">
+    <!-- Chat Window -->
+    <div id="chat-window" class="shadow-lg border rounded bg-white">
+        <div class="p-2 bg-primary text-white d-flex justify-content-between align-items-center rounded-top">
+            <strong>GenBI Assistant</strong>
+            <button class="btn btn-sm btn-light" onclick="toggleChat()">&times;</button>
         </div>
-
-        <div id="chat-window" class="shadow-lg border rounded bg-white">
-            <div class="p-2 bg-primary text-white d-flex justify-content-between align-items-center">
-                <strong>Chatbot GenBI</strong>
-                <button class="btn btn-sm btn-light" onclick="toggleChat()">&times;</button>
-            </div>
-            <div id="chat-messages"></div>
-            <div class="p-2 border-top d-flex">
-                <input type="text" id="chat-input" class="form-control" placeholder="Tulis pesan...">
-                <button class="btn btn-primary ms-2" onclick="sendChat()">Kirim</button>
+        <div id="chat-messages">
+            <!-- Messages will appear here -->
+        </div>
+        <div id="chat-input-container">
+            <div class="input-group">
+                <input type="text" id="chat-input" class="form-control" placeholder="Tulis pesan..."
+                    aria-label="Message">
+                <button class="btn btn-primary" type="button" onclick="sendChat()">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                        viewBox="0 0 16 16">
+                        <path
+                            d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576 6.636 10.07Zm6.787-8.201L1.591 6.602l4.339 2.76 7.494-7.493Z" />
+                    </svg>
+                </button>
             </div>
         </div>
+    </div>
 
+    <!-- Your existing scripts remain the same -->
+    <!-- ... -->
 
-    </main>
-
-    @include('frontend.template.footer')
-    {{-- @include('frontend.chatbot') --}}
-
-    {{-- <div class="container">
-        @yield('content')
-
-
-
-    {{-- @include('frontend.template.footer') --}}
-
-
-    {{-- @include('frontend.template.footer') --}}
-
-    <!-- JavaScript Files -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous">
-    </script>
-    <script src="{{ asset('assets2/js/wow.min.js') }}"></script>
-    <script src="{{ asset('assets2/js/typed.js') }}"></script>
-    <script src="{{ asset('assets2/js/aos.js') }}"></script>
-    <script src="{{ asset('assets2/js/change.js') }}"></script>
-    <script src="{{ asset('assets2/js/main.js') }}"></script>
-    <script src="{{ asset('assets2/js/chatbot .js') }}"></script>
-
-
-
+    <!-- Updated Chat Script -->
     <script>
-        const soundSend = new Audio("/sounds/send.mp3");
-        const soundReceive = new Audio("/sounds/receive.mp3");
+        // Session ID for tracking conversation
+        const sessionId = 'genbi-' + Math.random().toString(36).substring(2, 15);
+        let isTyping = false;
 
+        // Toggle chat window visibility
         function toggleChat() {
             const win = document.getElementById("chat-window");
             win.style.display = win.style.display === "none" ? "block" : "none";
+
+            // Auto focus input when chat opens
+            if (win.style.display === "block") {
+                setTimeout(() => {
+                    document.getElementById("chat-input").focus();
+                }, 100);
+
+                // Send welcome message if first time opening
+                if (!localStorage.getItem('chatOpened')) {
+                    setTimeout(() => {
+                        appendMsg("Halo! Saya GenBI Assistant. Ada yang bisa saya bantu tentang program GenBI?",
+                            "bot");
+                        showQuickReplies([
+                            "Apa itu GenBI?",
+                            "Bagaimana cara daftar?",
+                            "Apa saja program GenBI?"
+                        ]);
+                    }, 500);
+                    localStorage.setItem('chatOpened', 'true');
+                }
+            }
         }
 
-        document.getElementById("chat-float").addEventListener("click", toggleChat);
+        // Show typing indicator
+        function showTyping() {
+            if (isTyping) return;
 
-        function appendMsg(text, sender, isTyping = false) {
+            isTyping = true;
             const row = document.createElement("div");
-            row.className = "msg-row " + (sender === "user" ? "msg-user" : "msg-bot");
+            row.className = "msg-row msg-bot";
+            row.id = "typing-indicator";
 
             const avatar = document.createElement("img");
             avatar.className = "avatar";
-            avatar.src = sender === "user" ?
-                "http://static.vecteezy.com/system/resources/thumbnails/011/490/381/small_2x/happy-smiling-young-man-avatar-3d-portrait-of-a-man-cartoon-character-people-illustration-isolated-on-white-background-vector.jpg" :
-                "assets2/images/logo.png";
+            avatar.src = "{{ asset('assets2/images/logo.png') }}";
 
             const bubble = document.createElement("div");
-            bubble.className = "msg-bubble bg-" + (sender === "user" ? "primary text-white" : "light");
-            bubble.textContent = "";
+            bubble.className = "msg-bubble bot typing-indicator";
+
+            // Add typing dots
+            for (let i = 0; i < 3; i++) {
+                const dot = document.createElement("div");
+                dot.className = "typing-dot";
+                bubble.appendChild(dot);
+            }
 
             row.appendChild(avatar);
             row.appendChild(bubble);
             document.getElementById("chat-messages").appendChild(row);
             document.getElementById("chat-messages").scrollTop = document.getElementById("chat-messages").scrollHeight;
+        }
 
-            if (isTyping) {
-                let i = 0;
-                const typing = setInterval(() => {
-                    bubble.textContent += text.charAt(i);
-                    i++;
-                    if (i >= text.length) {
-                        clearInterval(typing);
-                        soundReceive.play().catch(() => {});
-                    }
-                }, 25);
+        // Hide typing indicator
+        function hideTyping() {
+            isTyping = false;
+            const indicator = document.getElementById("typing-indicator");
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+        // Show quick reply buttons
+        function showQuickReplies(replies) {
+            const container = document.createElement("div");
+            container.className = "quick-replies";
+
+            replies.forEach(reply => {
+                const button = document.createElement("button");
+                button.className = "quick-reply";
+                button.textContent = reply;
+                button.onclick = () => {
+                    document.getElementById("chat-input").value = reply;
+                    sendChat();
+                    container.remove();
+                };
+                container.appendChild(button);
+            });
+
+            // Append to last bot message
+            const messages = document.getElementById("chat-messages").children;
+            if (messages.length > 0) {
+                messages[messages.length - 1].appendChild(container);
+                document.getElementById("chat-messages").scrollTop = document.getElementById("chat-messages").scrollHeight;
+            }
+        }
+
+        // Append message to chat
+        function appendMsg(text, sender, isQuickReply = false) {
+            hideTyping(); // Hide typing indicator when message arrives
+
+            const row = document.createElement("div");
+            row.className = "msg-row " + (sender === "user" ? "msg-user" : "msg-bot");
+
+            // Only show avatar for bot messages
+            if (sender === "bot") {
+                const avatar = document.createElement("img");
+                avatar.className = "avatar";
+                avatar.src = "{{ asset('assets2/images/logo.png') }}";
+                avatar.alt = "GenBI Bot";
+                row.appendChild(avatar);
+            }
+
+            const bubble = document.createElement("div");
+            bubble.className = "msg-bubble " + (sender === "user" ? "user" : "bot");
+
+            if (isQuickReply) {
+                bubble.innerHTML = text; // Allow HTML for formatted responses
             } else {
                 bubble.textContent = text;
-                if (sender === "bot") soundReceive.play().catch(() => {});
             }
+
+            row.appendChild(bubble);
+
+            // If user message, add avatar after bubble for right alignment
+            if (sender === "user") {
+                const avatar = document.createElement("img");
+                avatar.className = "avatar";
+                avatar.src = "https://ui-avatars.com/api/?name=User&background=0D8ABC&color=fff";
+                avatar.alt = "You";
+                row.appendChild(avatar);
+            }
+
+            document.getElementById("chat-messages").appendChild(row);
+            document.getElementById("chat-messages").scrollTop = document.getElementById("chat-messages").scrollHeight;
         }
 
-        // Replace the existing sendChat function with this simplified version
-        function sendChat() {
+        // Send message to Dialogflow
+        async function sendChat() {
             const input = document.getElementById("chat-input");
-            const text = input.value.trim();
-            if (!text) return;
+            const message = input.value.trim();
 
-            appendMsg(text, "user");
+            if (!message) return;
+
+            // Add user message to chat
+            appendMsg(message, "user");
             input.value = "";
 
-            const payload = {
-                queryText: text,
-                session: localStorage.getItem('chat_session') || 'session-' + Date.now()
-            };
+            try {
+                showTyping();
 
-            // Simpan session ID jika belum ada
-            if (!localStorage.getItem('chat_session')) {
-                localStorage.setItem('chat_session', payload.session);
-            }
-
-            fetch("/chat", {
+                // Call Laravel backend endpoint
+                const response = await fetch("/chatbot", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "Accept": "application/json",
-                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
-                    },
-                    body: JSON.stringify(payload)
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log("Dialogflow Response:", data);
-                    const reply = data.fulfillmentText || "Maaf, saya tidak mendapat balasan.";
-                    appendMsg(reply, "bot", true);
-                })
-                .catch(error => {
-                    console.error("Error:", error);
-                    appendMsg("⚠️ Gangguan sementara. Silakan refresh halaman atau coba lagi nanti.", "bot");
-                });
-        }
-
-        // Add this for Enter key support
-        document.addEventListener("DOMContentLoaded", function() {
-            document.getElementById("chat-input").addEventListener("keydown", function(e) {
-                if (e.key === "Enter") {
-                    e.preventDefault();
-                    sendChat();
-                }
-            });
-        });
-
-        // Test function for debugging
-        function testWebhook() {
-            fetch("https://genbicirebon.org/dialogflow-webhook", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content,
                         "Accept": "application/json"
                     },
                     body: JSON.stringify({
-                        queryText: "test",
-                        session: "test-session"
+                        message: message,
+                        session_id: sessionId
                     })
-                })
-                .then(response => response.json())
-                .then(data => console.log("Test result:", data))
-                .catch(error => console.error("Test error:", error));
+                });
+
+                const data = await response.json();
+
+                // Process response from Dialogflow
+                if (data.response) {
+                    appendMsg(data.response, "bot");
+
+                    // Show quick replies for common follow-ups
+                    if (data.intent === "Tentang.Genbi") {
+                        showQuickReplies([
+                            "Apa saja divisi GenBI?",
+                            "Bagaimana cara daftar GenBI?",
+                            "Apa manfaat jadi anggota GenBI?"
+                        ]);
+                    }
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                appendMsg("Maaf, terjadi kesalahan. Silakan coba lagi nanti.", "bot");
+            } finally {
+                hideTyping();
+            }
         }
+
+        // Event listeners
+        document.getElementById("chat-float").addEventListener("click", toggleChat);
+
+        document.getElementById("chat-input").addEventListener("keydown", function(e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                sendChat();
+            }
+        });
+
+        // Auto-open chat after 30 seconds if not interacted with
+        setTimeout(() => {
+            if (!localStorage.getItem('chatOpened')) {
+                toggleChat();
+            }
+        }, 30000);
     </script>
-
-
-    <!-- Trigger Manual Popup -->
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {

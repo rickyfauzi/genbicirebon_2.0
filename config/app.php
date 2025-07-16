@@ -172,7 +172,7 @@ return [
         App\Providers\EventServiceProvider::class,
         App\Providers\RouteServiceProvider::class,
         'PDF' => Barryvdh\DomPDF\ServiceProvider::class,
-        
+
     ])->toArray(),
 
     /*
@@ -190,5 +190,10 @@ return [
         // 'Example' => App\Facades\Example::class,
         'Excel' => Maatwebsite\Excel\Facades\Excel::class,
     ])->toArray(),
+
+    'dialogflow' => [
+        'project_id' => env('DIALFLOW_PROJECT_ID'),
+        'credentials' => env('DIALFLOW_CREDENTIALS'),
+    ],
 
 ];
