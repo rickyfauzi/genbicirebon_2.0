@@ -200,33 +200,35 @@
     <!-- ... -->
     @include('frontend.template.header')
     <!-- Floating Chat Icon -->
-    <div id="chat-float">
-        <img src="{{ asset('assets2/images/chatbot.png') }}" alt="chat" width="60" height="60">
-    </div>
+    <main>
+        <div id="chat-float">
+            <img src="{{ asset('assets2/images/chatbot.png') }}" alt="chat" width="60" height="60">
+        </div>
 
-    <!-- Chat Window -->
-    <div id="chat-window" class="shadow-lg border rounded bg-white">
-        <div class="p-2 bg-primary text-white d-flex justify-content-between align-items-center rounded-top">
-            <strong>GenBI Assistant</strong>
-            <button class="btn btn-sm btn-light" onclick="toggleChat()">&times;</button>
-        </div>
-        <div id="chat-messages">
-            <!-- Messages will appear here -->
-        </div>
-        <div id="chat-input-container">
-            <div class="input-group">
-                <input type="text" id="chat-input" class="form-control" placeholder="Tulis pesan..."
-                    aria-label="Message">
-                <button class="btn btn-primary" type="button" onclick="sendChat()">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                        viewBox="0 0 16 16">
-                        <path
-                            d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576 6.636 10.07Zm6.787-8.201L1.591 6.602l4.339 2.76 7.494-7.493Z" />
-                    </svg>
-                </button>
+        <!-- Chat Window -->
+        <div id="chat-window" class="shadow-lg border rounded bg-white">
+            <div class="p-2 bg-primary text-white d-flex justify-content-between align-items-center rounded-top">
+                <strong>GenBI Assistant</strong>
+                <button class="btn btn-sm btn-light" onclick="toggleChat()">&times;</button>
+            </div>
+            <div id="chat-messages">
+                <!-- Messages will appear here -->
+            </div>
+            <div id="chat-input-container">
+                <div class="input-group">
+                    <input type="text" id="chat-input" class="form-control" placeholder="Tulis pesan..."
+                        aria-label="Message">
+                    <button class="btn btn-primary" type="button" onclick="sendChat()">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                            viewBox="0 0 16 16">
+                            <path
+                                d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576 6.636 10.07Zm6.787-8.201L1.591 6.602l4.339 2.76 7.494-7.493Z" />
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
+    </main>
 
     <!-- Your existing scripts remain the same -->
     <!-- ... -->
