@@ -18,6 +18,11 @@ class DialogflowService
         $this->projectId = config('services.dialogflow.project_id');
         $this->credentials = config('services.dialogflow.credentials');
         $this->languageCode = 'id'; // atau 'en' untuk English
+        // Tambahkan di constructor DialogflowService
+        if (!file_exists($this->credentials)) {
+            Log::error('Dialogflow credentials file not found at: ' . $this->credentials);
+            throw new \Exception('Credentials file not found');
+        }
     }
 
     public function detectIntentText($text, $sessionId)

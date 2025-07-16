@@ -37,6 +37,15 @@ use App\Http\Controllers\WebhookController;
 */
 
 Route::post('/chatbot', [ChatbotController::class, 'handleChat']);
+Route::get('/test-dialogflow', function () {
+    try {
+        putenv("GOOGLE_APPLICATION_CREDENTIALS=" . config('services.dialogflow.credentials'));
+        $client = new \Google\Cloud\Dialogflow\V2\SessionsClient();
+        return response()->json(['success' => true]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
 
 /** for side bar menu active */
 function set_active($route)
