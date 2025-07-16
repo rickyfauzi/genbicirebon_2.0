@@ -192,8 +192,9 @@ return [
     ])->toArray(),
 
     'dialogflow' => [
-        'project_id' => env('DIALOGFLOW_PROJECT_ID'),
-        'credentials' => env('DIALOGFLOW_CREDENTIALS'),
+        'project_id' => 'chatbotgenbi',
+        'credentials' => storage_path('app/credentials/genbi-dialogflow-service-account.json'),
     ],
+
 
 ];
