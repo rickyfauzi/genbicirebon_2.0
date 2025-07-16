@@ -5,6 +5,7 @@ namespace App\Services;
 use Google\Cloud\Dialogflow\V2\SessionsClient;
 use Google\Cloud\Dialogflow\V2\TextInput;
 use Google\Cloud\Dialogflow\V2\QueryInput;
+use Illuminate\Support\Facades\Log;
 
 class DialogflowService
 {
@@ -21,27 +22,53 @@ class DialogflowService
 
     public function detectIntentText($text, $sessionId)
     {
-        putenv("GOOGLE_APPLICATION_CREDENTIALS=" . $this->credentials);
+        // Tambahkan debug log
+        Log::debug('Dialogflow Config:', [
+            'project_id' => $this->projectId,
+            'credentials_path' => $this->credentials,
+            'file_exists' => file_exists($this->credentials)
+        ]);
 
-        $sessionsClient = new SessionsClient();
-        $session = $sessionsClient->sessionName($this->projectId, $sessionId);
+        try {
+            putenv("GOOGLE_APPLICATION_CREDENTIALS=" . $this->credentials);
 
-        $textInput = new TextInput();
-        $textInput->setText($text);
-        $textInput->setLanguageCode($this->languageCode);
+            $sessionsClient = new SessionsClient();
+            $session = $sessionsClient->sessionName($this->projectId, $sessionId);
 
-        $queryInput = new QueryInput();
-        $queryInput->setText($textInput);
+            // Debug session
+            Log::debug('Dialogflow Session:', ['session' => $session]);
 
-        $response = $sessionsClient->detectIntent($session, $queryInput);
-        $queryResult = $response->getQueryResult();
+            $textInput = new TextInput();
+            $textInput->setText($text);
+            $textInput->setLanguageCode($this->languageCode);
 
-        $sessionsClient->close();
+            $queryInput = new QueryInput();
+            $queryInput->setText($textInput);
 
-        return [
-            'response' => $queryResult->getFulfillmentText(),
-            'intent' => $queryResult->getIntent()->getDisplayName(),
-            'confidence' => $queryResult->getIntentDetectionConfidence()
-        ];
+            $response = $sessionsClient->detectIntent($session, $queryInput);
+            $queryResult = $response->getQueryResult();
+
+            // Debug response
+            Log::debug('Dialogflow Response:', [
+                'fulfillmentText' => $queryResult->getFulfillmentText(),
+                'intent' => $queryResult->getIntent() ? $queryResult->getIntent()->getDisplayName() : null,
+                'confidence' => $queryResult->getIntentDetectionConfidence()
+            ]);
+
+            $sessionsClient->close();
+
+            return [
+                'response' => $queryResult->getFulfillmentText() ?? 'Maaf, saya tidak mengerti pertanyaan itu',
+                'intent' => $queryResult->getIntent() ? $queryResult->getIntent()->getDisplayName() : 'default',
+                'confidence' => $queryResult->getIntentDetectionConfidence()
+            ];
+        } catch (\Exception $e) {
+            Log::error('Dialogflow Error:', ['error' => $e->getMessage()]);
+            return [
+                'response' => 'Maaf, terjadi kesalahan sistem. Silakan coba lagi nanti.',
+                'intent' => 'error',
+                'confidence' => 0
+            ];
+        }
     }
 }

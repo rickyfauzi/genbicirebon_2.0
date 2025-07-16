@@ -198,7 +198,7 @@
 <body>
     <!-- Your existing body content remains the same until the chat elements -->
     <!-- ... -->
-
+    @include('frontend.template.header')
     <!-- Floating Chat Icon -->
     <div id="chat-float">
         <img src="{{ asset('assets2/images/chatbot.png') }}" alt="chat" width="60" height="60">
@@ -231,6 +231,7 @@
     <!-- Your existing scripts remain the same -->
     <!-- ... -->
 
+    @include('frontend.template.header')
     <!-- Updated Chat Script -->
     <script>
         // Session ID for tracking conversation
