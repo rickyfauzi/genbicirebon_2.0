@@ -9,7 +9,7 @@
         "barryvdh/laravel-dompdf": "^2.0",
         "brian2694/laravel-toastr": "^5.57",
         "google/apiclient": "2.13",
-        "google/cloud-dialogflow": "^0.27.0",
+        "google/cloud-dialogflow": "^2.1",
         "google/cloud-firestore": "^1.51",
         "guzzlehttp/guzzle": "^7.2",
         "kreait/firebase-php": "^7.19",

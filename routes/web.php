@@ -23,6 +23,8 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Auth\Events\PasswordReset;
 use Kreait\Firebase\Factory;
 use App\Http\Controllers\WebhookController;
+use Google\Cloud\Dialogflow\V2\SessionsClient;
+
 
 // use Illuminate\Support\Facades\Request;
 /*
@@ -36,16 +38,7 @@ use App\Http\Controllers\WebhookController;
 |
 */
 
-Route::post('/chatbot', [ChatbotController::class, 'handleChat']);
-Route::get('/test-dialogflow', function () {
-    try {
-        putenv("GOOGLE_APPLICATION_CREDENTIALS=" . config('services.dialogflow.credentials'));
-        $client = new \Google\Cloud\Dialogflow\V2\SessionsClient();
-        return response()->json(['success' => true]);
-    } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()], 500);
-    }
-});
+
 
 /** for side bar menu active */
 function set_active($route)
@@ -56,7 +49,10 @@ function set_active($route)
     return Request::path() == $route ? 'active' : '';
 }
 
+Route::get('chatbot', [ChatbotController::class, 'index'])->name('chatbot.index');
 
+// Rute untuk menerima pesan dari user dan mengirimkannya ke Dialogflow
+Route::post('chatbot', [ChatbotController::class, 'sendMessage'])->name('chatbot.sendMessage');
 
 Route::get('/', [FrontendController::class, 'index'])->name('index');
 

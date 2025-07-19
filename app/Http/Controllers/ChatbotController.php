@@ -2,57 +2,80 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\DialogflowService;
+use Google\Cloud\Dialogflow\V2\Client\SessionsClient;
 use Illuminate\Http\Request;
+use Google\Cloud\Dialogflow\V2\QueryInput;
+use Google\Cloud\Dialogflow\V2\TextInput;
+use Google\Cloud\Dialogflow\V2\DetectIntentRequest;
 use Illuminate\Support\Facades\Log;
 
 class ChatbotController extends Controller
 {
-    protected $dialogflow;
-
-    public function __construct(DialogflowService $dialogflow)
+    public function index()
     {
-        $this->dialogflow = $dialogflow;
+        return view('chatbot');
     }
 
-    public function handleChat(Request $request)
+    public function sendMessage(Request $request)
     {
+        $request->validate([
+            'message' => 'required|string',
+        ]);
+
         try {
-            // Validasi input
-            $request->validate([
-                'message' => 'required|string|max:1000',
-                'session_id' => 'nullable|string|max:100'
-            ]);
+            if (!class_exists(SessionsClient::class)) {
+                Log::error('SessionsClient class not found. Pastikan library google/cloud-dialogflow sudah di-install.');
+                return response()->json(['message' => 'Library Dialogflow tidak ditemukan. Silakan install dengan composer.'], 500);
+            }
 
             $message = $request->input('message');
-            $sessionId = $request->input('session_id') ?? 'genbi-' . uniqid();
+            $response = $this->detectIntent($message);
 
-            Log::info('Chatbot Request:', [
-                'message' => $message,
-                'session_id' => $sessionId
-            ]);
-
-            // Proses pesan dengan Dialogflow
-            $response = $this->dialogflow->detectIntentText($message, $sessionId);
-
-            Log::info('Chatbot Response:', $response);
-
-            return response()->json($response);
-        } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
-                'response' => 'Pesan tidak valid. Silakan coba lagi.',
-                'error' => $e->getMessage()
-            ], 400);
+                'message' => $response
+            ]);
         } catch (\Exception $e) {
-            Log::error('Chatbot Controller Error:', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            return response()->json([
-                'response' => 'Maaf, terjadi kesalahan. Silakan coba lagi nanti.',
-                'error' => 'Internal server error'
-            ], 500);
+            Log::error("Exception: " . $e->getMessage());
+            Log::error("File: " . $e->getFile());
+            Log::error("Line: " . $e->getLine());
+            return response()->json(['message' => 'Maaf, terjadi kesalahan di server.'], 500);
         }
+    }
+
+    public function detectIntent(string $text)
+    {
+        $projectId = 'websitebot-etqi'; // Ganti dengan ID Project kamu
+        $sessionId = session()->getId();
+
+        $credentialsPath = storage_path('app/google/dialogflow-credentials.json');
+
+        $sessionsClient = new SessionsClient([
+            'credentials' => $credentialsPath
+        ]);
+
+        $session = $sessionsClient->sessionName($projectId, $sessionId);
+
+        // Buat TextInput
+        $textInput = new TextInput();
+        $textInput->setText($text);
+        $textInput->setLanguageCode('id');
+
+        // Bungkus dalam QueryInput
+        $queryInput = new QueryInput();
+        $queryInput->setText($textInput);
+
+        // Buat request DetectIntentRequest
+        $detectIntentRequest = new DetectIntentRequest();
+        $detectIntentRequest->setSession($session);
+        $detectIntentRequest->setQueryInput($queryInput);
+
+        // Kirim ke Dialogflow
+        $response = $sessionsClient->detectIntent($detectIntentRequest);
+
+        // Ambil response
+        $queryResult = $response->getQueryResult();
+        $fulfillmentText = $queryResult->getFulfillmentText();
+
+        return $fulfillmentText;
     }
 }

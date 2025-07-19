@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "fa4fddcdbf8a90f813b8430dd4d5d075",
+    "content-hash": "dbeb4de2f654fa2e8da3da007569ce36",
     "packages": [
         {
             "name": "barryvdh/laravel-dompdf",
@@ -1488,25 +1488,25 @@
         },
         {
             "name": "google/cloud-dialogflow",
-            "version": "v0.27.1",
+            "version": "v2.1.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/googleapis/google-cloud-php-dialogflow.git",
-                "reference": "afded1b6892ca70a7bcf77ea196cde2b280088e4"
+                "reference": "8abb3c84978b34d13a8027e33a9d30cb57123dc3"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/googleapis/google-cloud-php-dialogflow/zipball/afded1b6892ca70a7bcf77ea196cde2b280088e4",
-                "reference": "afded1b6892ca70a7bcf77ea196cde2b280088e4",
+                "url": "https://api.github.com/repos/googleapis/google-cloud-php-dialogflow/zipball/8abb3c84978b34d13a8027e33a9d30cb57123dc3",
+                "reference": "8abb3c84978b34d13a8027e33a9d30cb57123dc3",
                 "shasum": ""
             },
             "require": {
-                "google/gax": "^1.1"
+                "google/gax": "^1.36.0",
+                "php": "^8.0"
             },
             "require-dev": {
-                "google/cloud-core": "^1.39",
-                "phpunit/phpunit": "^4.8|^5.0|^8.0",
-                "yoast/phpunit-polyfills": "^1.0"
+                "google/cloud-core": "^1.52.7",
+                "phpunit/phpunit": "^9.0"
             },
             "suggest": {
                 "ext-grpc": "Enables use of gRPC, a universal high-performance RPC framework created by Google."
@@ -1532,9 +1532,9 @@
             ],
             "description": "Google Cloud Dialogflow Client for PHP",
             "support": {
-                "source": "https://github.com/googleapis/google-cloud-php-dialogflow/tree/v0.27.1"
+                "source": "https://github.com/googleapis/google-cloud-php-dialogflow/tree/v2.1.1"
             },
-            "time": "2022-05-18T19:48:28+00:00"
+            "time": "2025-05-20T19:49:54+00:00"
         },
         {
             "name": "google/cloud-firestore",
