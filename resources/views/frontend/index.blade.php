@@ -413,9 +413,9 @@
 
 
 
-        <a href="javascript:void(0)" class="back-to-top">
+        {{-- <a href="javascript:void(0)" class="back-to-top">
             <i class="lni lni-chevron-up"></i> <!-- Ikon back-to-top -->
-        </a>
+        </a> --}}
 
         <!-- ====== Footer Start ====== -->
         <!-- ====== Footer End ====== -->

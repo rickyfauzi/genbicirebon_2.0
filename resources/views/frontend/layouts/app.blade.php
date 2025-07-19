@@ -42,7 +42,7 @@
     <style>
         /* Modern Chatbot Styles */
         :root {
-            --chatbot-primary: #0d6efd;
+            --chatbot-primary: #3056d3;
             --chatbot-secondary: #6c757d;
             --chatbot-success: #198754;
             --chatbot-danger: #dc3545;
@@ -50,7 +50,7 @@
             --chatbot-info: #0dcaf0;
             --chatbot-light: #f8f9fa;
             --chatbot-dark: #212529;
-            --chatbot-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --chatbot-gradient: linear-gradient(135deg, #3056d3 0%, #764ba2 100%);
         }
 
         /* Floating Chat Button */
@@ -141,6 +141,11 @@
             align-items: center;
             justify-content: space-between;
             border-radius: 20px 20px 0 0;
+        }
+
+        .chat-header h5 {
+            color: white;
+
         }
 
         .chat-header-info {
@@ -454,6 +459,10 @@
             color: #6b7280;
         }
 
+        .welcome-message h6 {
+            color: #000;
+        }
+
         .welcome-icon {
             width: 60px;
             height: 60px;
@@ -663,7 +672,7 @@
                     setTimeout(() => {
                         showWelcomeMessage();
                         chatInitialized = true;
-                    }, 800);
+                    }, 2000);
                 }
             }
         }
