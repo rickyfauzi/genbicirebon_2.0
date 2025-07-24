@@ -616,512 +616,317 @@
     <script src="{{ asset('assets2/js/main.js') }}"></script>
 
     <script>
+        // Enhanced Chatbot Functionality for GenBI Cirebon
         $(document).ready(function() {
-            // Setup CSRF Token untuk semua request AJAX
+            // Initialize with enhanced features
+            initializeEnhancedChat();
+        });
+
+        // Enhanced Chat Initialization
+        function initializeEnhancedChat() {
+            // CSRF Token setup
             $.ajaxSetup({
                 headers: {
                     'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
                 }
             });
 
-            // Hide loading spinner when page is ready
+            // Hide loading spinner
             $('#loading-spinner').fadeOut();
 
-            // Initialize chat
-            initializeChat();
-        });
+            // Chat variables
+            let isTyping = false;
+            let chatInitialized = false;
+            const sessionId = 'genbi-' + Math.random().toString(36).substring(2, 15);
+            const websiteBaseUrl = 'https://genbicirebon.org';
 
-        // Chat variables
-        let isTyping = false;
-        let chatInitialized = false;
-        const sessionId = 'genbi-' + Math.random().toString(36).substring(2, 15);
-
-        // Initialize chat functionality
-        function initializeChat() {
-            // Event listener for Enter key in input
+            // Event listeners
             $('#chat-input').on('keypress', function(e) {
                 if (e.which === 13 && !e.shiftKey) {
                     e.preventDefault();
-                    sendChat();
+                    sendEnhancedChat();
                 }
             });
 
-            // Auto-focus input when typing
-            $(document).on('keydown', function(e) {
-                if (!$('#chat-window').is(':visible')) return;
-                if (e.target.tagName.toLowerCase() !== 'input' && e.target.tagName
-                    .toLowerCase() !== 'textarea') {
+            // Auto-focus input when chat is open
+            $(document).on('click', function(e) {
+                if ($('#chat-window').is(':visible') &&
+                    !$(e.target).closest('#chat-input-container').length) {
                     $('#chat-input').focus();
                 }
             });
-        }
 
-        // Toggle chat window
-        function toggleChat() {
-            const chatWindow = $('#chat-window');
-            const isVisible = chatWindow.is(':visible');
+            // Quick replies for common questions
+            const predefinedQuickReplies = {
+                'kegiatan': ["Kegiatan terbaru", "Agenda bulan ini", "Foto kegiatan"],
+                'beasiswa': ["Syarat beasiswa", "Dokumen diperlukan", "Timeline pendaftaran"],
+                'genbi': ["Struktur organisasi", "Visi misi", "Program kerja"],
+                'default': ["Info lebih lanjut", "Hubungi admin", "FAQ lainnya"]
+            };
 
-            if (isVisible) {
-                chatWindow.removeClass('show').fadeOut(300);
-            } else {
-                chatWindow.addClass('show').fadeIn(300);
-                $('#chat-input').focus();
+            // Website content endpoints (mock - replace with your actual API)
+            const websiteEndpoints = {
+                activities: '/api/activities',
+                blogs: '/api/blogs',
+                gallery: '/api/gallery',
+                members: '/api/members'
+            };
 
-                // Send welcome message if first time
-                if (!chatInitialized) {
-                    setTimeout(() => {
-                        showWelcomeMessage();
-                        chatInitialized = true;
-                    }, 2000);
-                }
-            }
-        }
+            // Enhanced send chat function
+            async function sendEnhancedChat() {
+                const input = $('#chat-input');
+                const message = input.val().trim();
+                const sendBtn = $('#send-btn');
 
-        // Show welcome message with quick replies
-        function showWelcomeMessage() {
-            $('.welcome-message').fadeOut(300, function() {
-                appendMessage(
-                    "Halo! Saya GenBI Assistant. Ada yang bisa saya bantu tentang program GenBI Cirebon?",
-                    'bot',
-                    true
-                );
+                if (!message || isTyping) return;
 
-                setTimeout(() => {
-                    showQuickReplies([
-                        "Apa itu GenBI?",
-                        "Syarat beasiswa GenBI",
-                        "Program unggulan",
-                        "Cara mendaftar"
-                    ]);
-                }, 1000);
-            });
-        }
+                input.val('');
+                sendBtn.prop('disabled', true);
+                appendMessage(message, 'user');
+                showTypingIndicator();
 
-        // Send message function
-        function sendChat() {
-            const input = $('#chat-input');
-            const message = input.val().trim();
-            const sendBtn = $('#send-btn');
+                try {
+                    // First check if it's a website content query
+                    const websiteResponse = await checkWebsiteContent(message);
 
-            if (!message || isTyping) return;
+                    if (websiteResponse) {
+                        hideTypingIndicator();
+                        appendMessage(websiteResponse, 'bot');
+                        showContextualQuickReplies(message, websiteResponse);
+                        return;
+                    }
 
-            // Clear input and disable send button
-            input.val('');
-            sendBtn.prop('disabled', true);
+                    // If not, use Dialogflow
+                    const response = await $.ajax({
+                        url: "{{ route('chatbot.sendMessage') }}",
+                        type: 'POST',
+                        data: {
+                            message,
+                            session_id: sessionId
+                        },
+                        timeout: 10000
+                    });
 
-            // Show user message
-            appendMessage(message, 'user');
-
-            // Show typing indicator
-            showTypingIndicator();
-
-            // Send to server
-            $.ajax({
-                url: "{{ route('chatbot.sendMessage') }}",
-                type: 'POST',
-                data: {
-                    message: message,
-                    session_id: sessionId
-                },
-                timeout: 10000,
-                success: function(response) {
                     hideTypingIndicator();
 
-                    if (response && response.message) {
+                    if (response?.message) {
                         appendMessage(response.message, 'bot');
-
-                        // Show contextual quick replies
-                        setTimeout(() => {
-                            showContextualQuickReplies(message, response.message);
-                        }, 500);
+                        showContextualQuickReplies(message, response.message);
                     } else {
                         appendMessage("Maaf, saya tidak dapat memproses pesan Anda saat ini.", 'bot');
                     }
-                },
-                error: function(xhr, status, error) {
+                } catch (error) {
                     hideTypingIndicator();
                     console.error('Chat Error:', error);
-
-                    let errorMessage = "Maaf, terjadi kesalahan saat menghubungi server.";
-
-                    if (status === 'timeout') {
-                        errorMessage = "Koneksi timeout. Silakan coba lagi.";
-                    } else if (xhr.status === 429) {
-                        errorMessage = "Terlalu banyak pesan. Silakan tunggu sebentar.";
-                    } else if (xhr.status === 500) {
-                        errorMessage = "Terjadi kesalahan server. Tim kami sedang memperbaikinya.";
-                    }
-
-                    appendMessage(errorMessage, 'bot');
-                },
-                complete: function() {
+                    handleChatError(error);
+                } finally {
                     sendBtn.prop('disabled', false);
                     input.focus();
                 }
-            });
-        }
-
-        // Append message to chat
-        function appendMessage(text, sender, isWelcome = false) {
-            const messagesContainer = $('#chat-messages');
-            const timestamp = new Date().toLocaleTimeString('id-ID', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-
-            let messageHTML = '';
-
-            if (sender === 'user') {
-                messageHTML = `
-                    <div class="msg-row msg-user">
-                        <div class="msg-bubble user">
-                            ${escapeHtml(text)}
-                            <div style="font-size: 11px; opacity: 0.7; margin-top: 4px;">${timestamp}</div>
-                        </div>
-                        <div class="chat-avatar user">U</div>
-                    </div>
-                `;
-            } else {
-                messageHTML = `
-                    <div class="msg-row msg-bot">
-                        <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
-                        <div class="msg-bubble bot">
-                            ${text}
-                            <div style="font-size: 11px; opacity: 0.5; margin-top: 4px;">${timestamp}</div>
-                        </div>
-                    </div>
-                `;
             }
 
-            messagesContainer.append(messageHTML);
-            scrollToBottom();
-        }
+            // Check website content before Dialogflow
+            async function checkWebsiteContent(message) {
+                const lowerMsg = message.toLowerCase();
 
-        // Show typing indicator
-        function showTypingIndicator() {
-            if (isTyping) return;
+                // Activities/Events
+                if (/\b(kegiatan|acara|event|aktivitas|agenda)\b/i.test(lowerMsg)) {
+                    try {
+                        const response = await $.get(websiteBaseUrl + websiteEndpoints.activities);
+                        if (response?.length) {
+                            let reply = "📅 <strong>Kegiatan Terbaru GenBI Cirebon:</strong><br><br>";
+                            response.slice(0, 3).forEach(activity => {
+                                reply += `🏷️ <strong>${activity.title}</strong><br>`;
+                                reply += `📅 ${activity.date}<br>`;
+                                reply += `📍 ${activity.location || 'Online'}<br>`;
+                                reply +=
+                                    `🔗 <a href="${websiteBaseUrl}${activity.url}" target="_blank">Detail kegiatan</a><br><br>`;
+                            });
+                            reply += `🌐 <a href="${websiteBaseUrl}/kegiatan" target="_blank">Lihat semua kegiatan</a>`;
+                            return reply;
+                        }
+                    } catch (e) {
+                        console.error("Error fetching activities:", e);
+                        return `Anda bisa melihat kegiatan GenBI Cirebon di: <a href="${websiteBaseUrl}/kegiatan" target="_blank">${websiteBaseUrl}/kegiatan</a>`;
+                    }
+                }
 
-            isTyping = true;
-            const typingHTML = `
-                <div class="msg-row msg-bot" id="typing-indicator">
+                // Blog/Articles
+                if (/\b(blog|artikel|berita|tulisan)\b/i.test(lowerMsg)) {
+                    return `Artikel terbaru GenBI bisa dibaca di: <a href="${websiteBaseUrl}/blog" target="_blank">${websiteBaseUrl}/blog</a>`;
+                }
+
+                // Gallery
+                if (/\b(galeri|foto|dokumentasi|gambar)\b/i.test(lowerMsg)) {
+                    return `Galeri foto kegiatan GenBI: <a href="${websiteBaseUrl}/galeri" target="_blank">${websiteBaseUrl}/galeri</a>`;
+                }
+
+                // Members/Structure
+                if (/\b(anggota|pengurus|pengelola|struktur|organisasi)\b/i.test(lowerMsg)) {
+                    return `Informasi pengurus GenBI Cirebon: <a href="${websiteBaseUrl}/tentang-kami" target="_blank">${websiteBaseUrl}/tentang-kami</a>`;
+                }
+
+                return null;
+            }
+
+            // Error handling
+            function handleChatError(error) {
+                let errorMessage = "Maaf, terjadi kesalahan saat menghubungi server.";
+
+                if (error.statusText === 'timeout') {
+                    errorMessage = "Koneksi timeout. Silakan coba lagi.";
+                } else if (error.status === 429) {
+                    errorMessage = "Terlalu banyak permintaan. Silakan tunggu sebentar.";
+                } else if (error.status === 500) {
+                    errorMessage = "Terjadi kesalahan server. Tim kami sedang memperbaikinya.";
+                }
+
+                appendMessage(errorMessage, 'bot');
+            }
+
+            // Show contextual quick replies
+            function showContextualQuickReplies(userMessage, botResponse) {
+                const lowerMsg = userMessage.toLowerCase();
+                let replies = [];
+
+                if (/\b(kegiatan|acara|event)\b/i.test(lowerMsg)) {
+                    replies = predefinedQuickReplies.kegiatan;
+                } else if (/\b(beasiswa|dana|biaya)\b/i.test(lowerMsg)) {
+                    replies = predefinedQuickReplies.beasiswa;
+                } else if (/\b(genbi|organisasi|pengurus)\b/i.test(lowerMsg)) {
+                    replies = predefinedQuickReplies.genbi;
+                } else {
+                    replies = predefinedQuickReplies.default;
+                }
+
+                // Add website links for certain responses
+                if (botResponse.includes('kegiatan')) {
+                    replies.push("Lihat semua kegiatan");
+                } else if (botResponse.includes('blog')) {
+                    replies.push("Baca artikel terbaru");
+                }
+
+                if (replies.length > 0) {
+                    showQuickReplies(replies);
+                }
+            }
+
+            // Enhanced quick reply handler
+            function handleQuickReply(text) {
+                $('#chat-input').val(text);
+                sendEnhancedChat();
+                $('.quick-replies').fadeOut(200, () => $(this).remove());
+            }
+
+            // Toggle chat with animation
+            function toggleChat() {
+                const chatWindow = $('#chat-window');
+                chatWindow.toggleClass('show').fadeToggle(300);
+
+                if (chatWindow.is(':visible')) {
+                    $('#chat-input').focus();
+                    if (!chatInitialized) {
+                        setTimeout(showWelcomeMessage, 500);
+                        chatInitialized = true;
+                    }
+                }
+            }
+
+            // Welcome message with enhanced UI
+            function showWelcomeMessage() {
+                $('.welcome-message').fadeOut(300, () => {
+                    appendMessage(
+                        "Halo! Saya GenBI Assistant 🤖<br><br>Saya bisa membantu Anda dengan:<br>" +
+                        "✅ Informasi beasiswa BI<br>" +
+                        "✅ Kegiatan GenBI Cirebon<br>" +
+                        "✅ Program unggulan<br>" +
+                        "✅ Pendaftaran anggota",
+                        'bot',
+                        true
+                    );
+
+                    setTimeout(() => {
+                        showQuickReplies([
+                            "Kegiatan terbaru",
+                            "Syarat beasiswa",
+                            "Struktur organisasi",
+                            "Cara bergabung"
+                        ]);
+                    }, 1000);
+                });
+            }
+
+            // Append message with enhanced formatting
+            function appendMessage(text, sender, isWelcome = false) {
+                const messagesContainer = $('#chat-messages');
+                const timestamp = new Date().toLocaleTimeString('id-ID', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                let messageHTML = '';
+
+                if (sender === 'user') {
+                    messageHTML = `
+                <div class="msg-row msg-user">
+                    <div class="msg-bubble user">
+                        ${text}
+                        <div class="message-time">${timestamp}</div>
+                    </div>
+                    <div class="chat-avatar user">U</div>
+                </div>
+            `;
+                } else {
+                    // Process links in bot messages
+                    const processedText = text.replace(
+                        /(https?:\/\/[^\s]+)/g,
+                        '<a href="$1" target="_blank" style="color: #3056d3; text-decoration: underline;">$1</a>'
+                    );
+
+                    messageHTML = `
+                <div class="msg-row msg-bot">
                     <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
-                    <div class="msg-bubble bot typing-indicator">
-                        <div class="typing-dots">
-                            <div class="typing-dot"></div>
-                            <div class="typing-dot"></div>
-                            <div class="typing-dot"></div>
-                        </div>
+                    <div class="msg-bubble bot">
+                        ${processedText}
+                        <div class="message-time">${timestamp}</div>
                     </div>
                 </div>
             `;
-
-            $('#chat-messages').append(typingHTML);
-            scrollToBottom();
-        }
-
-        // Hide typing indicator
-        function hideTypingIndicator() {
-            isTyping = false;
-            $('#typing-indicator').remove();
-        }
-
-        // Show quick replies
-        function showQuickReplies(replies) {
-            const quickRepliesHTML = `
-                <div class="quick-replies">
-                    ${replies.map(reply =>
-                        `<button class="quick-reply" onclick="handleQuickReply('${escapeHtml(reply)}')">${reply}</button>`
-                    ).join('')}
-                </div>
-            `;
-
-            $('#chat-messages .msg-row:last-child .msg-bubble').append(quickRepliesHTML);
-            scrollToBottom();
-        }
-
-        // Show contextual quick replies based on conversation
-        function showContextualQuickReplies(userMessage, botResponse) {
-            const message = userMessage.toLowerCase();
-            let replies = [];
-
-            if (message.includes('genbi') || message.includes('apa itu')) {
-                replies = ["Syarat beasiswa", "Program unggulan", "Cara mendaftar"];
-            } else if (message.includes('syarat') || message.includes('persyaratan')) {
-                replies = ["Dokumen yang dibutuhkan", "Timeline pendaftaran", "Tips lolos seleksi"];
-            } else if (message.includes('program') || message.includes('kegiatan')) {
-                replies = ["Program sosial", "Program edukasi", "Event mendatang"];
-            } else if (message.includes('daftar') || message.includes('mendaftar')) {
-                replies = ["Syarat pendaftaran", "Link pendaftaran", "Kontak admin"];
-            } else {
-                // Default replies
-                replies = ["Info lebih lanjut", "Hubungi admin", "FAQ lainnya"];
-            }
-
-            if (replies.length > 0) {
-                showQuickReplies(replies);
-            }
-        }
-
-        // Handle quick reply click
-        function handleQuickReply(text) {
-            $('#chat-input').val(text);
-            sendChat();
-
-            // Remove quick replies after selection
-            $('.quick-replies').fadeOut(200, function() {
-                $(this).remove();
-            });
-        }
-
-        // Scroll to bottom of messages
-        function scrollToBottom() {
-            const messagesContainer = $('#chat-messages');
-            messagesContainer.animate({
-                scrollTop: messagesContainer[0].scrollHeight
-            }, 300);
-        }
-
-        // Escape HTML to prevent XSS
-        function escapeHtml(text) {
-            const map = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            };
-            return text.replace(/[&<>"']/g, function(m) {
-                return map[m];
-            });
-        }
-
-        // Auto-open chat after 30 seconds if not interacted
-        setTimeout(() => {
-            if (!chatInitialized && !$('#chat-window').is(':visible')) {
-                toggleChat();
-            }
-        }, 30000);
-
-        // Initialize other scripts
-        document.addEventListener("DOMContentLoaded", function() {
-            // Initialize AOS
-            if (typeof AOS !== 'undefined') {
-                AOS.init();
-            }
-
-            // Initialize WOW
-            // Initialize WOW
-            if (typeof WOW !== 'undefined') {
-                new WOW().init();
-            }
-
-            // Initialize Typed.js if elements exist
-            if ($('.typed-text-output').length) {
-                const typedStrings = $('.typed-text').text();
-                const typed = new Typed('.typed-text-output', {
-                    strings: typedStrings.split(','),
-                    typeSpeed: 100,
-                    backSpeed: 20,
-                    smartBackspace: false,
-                    loop: true
-                });
-            }
-
-            // Magnific Popup for image galleries
-            if (typeof $.fn.magnificPopup !== 'undefined') {
-                $('.popup-image').magnificPopup({
-                    type: 'image',
-                    closeOnContentClick: true,
-                    mainClass: 'mfp-img-mobile',
-                    image: {
-                        verticalFit: true
-                    }
-                });
-            }
-
-            // Smooth scrolling for anchor links
-            $('a[href*="#"]').not('[href="#"]').not('[href="#0"]').click(function(event) {
-                if (
-                    location.pathname.replace(/^\//, '') == this.pathname.replace(/^\//, '') &&
-                    location.hostname == this.hostname
-                ) {
-                    let target = $(this.hash);
-                    target = target.length ? target : $('[name=' + this.hash.slice(1) + ']');
-                    if (target.length) {
-                        event.preventDefault();
-                        $('html, body').animate({
-                            scrollTop: target.offset().top - 100
-                        }, 1000, 'easeInOutExpo');
-                    }
                 }
-            });
 
-            // Back to top button
-            $(window).scroll(function() {
-                if ($(this).scrollTop() > 300) {
-                    $('.back-to-top').fadeIn('slow');
-                } else {
-                    $('.back-to-top').fadeOut('slow');
-                }
-            });
-
-            $('.back-to-top').click(function() {
-                $('html, body').animate({
-                    scrollTop: 0
-                }, 1500, 'easeInOutExpo');
-                return false;
-            });
-
-            // Mobile navigation toggle
-            $('.navbar-toggler').click(function() {
-                $('.navbar-collapse').slideToggle(300);
-            });
-
-            // Close mobile menu when clicking on a link
-            $('.navbar-nav a').click(function() {
-                if ($('.navbar-toggler').is(':visible')) {
-                    $('.navbar-collapse').slideUp(300);
-                }
-            });
-
-            // Prevent dropdown from closing when clicking inside
-            $('.dropdown-menu').click(function(e) {
-                e.stopPropagation();
-            });
-
-            // Initialize tooltips
-            if (typeof $.fn.tooltip !== 'undefined') {
-                $('[data-bs-toggle="tooltip"]').tooltip();
+                messagesContainer.append(messageHTML);
+                scrollToBottom();
             }
 
-            // Initialize popovers
-            if (typeof $.fn.popover !== 'undefined') {
-                $('[data-bs-toggle="popover"]').popover();
-            }
-        });
-
-        // Cookie consent banner
-        function checkCookieConsent() {
-            if (!localStorage.getItem('cookieConsent')) {
-                $('#cookie-consent').removeClass('d-none');
-            }
-        }
-
-        function acceptCookies() {
-            localStorage.setItem('cookieConsent', 'accepted');
-            $('#cookie-consent').fadeOut();
-        }
-
-        // Check cookie consent on page load
-        $(window).on('load', function() {
-            checkCookieConsent();
-        });
-
-        // Form validation example
-        function validateForm(formId) {
-            const form = document.getElementById(formId);
-            if (!form) return false;
-
-            let isValid = true;
-            const inputs = form.querySelectorAll('input[required], textarea[required], select[required]');
-
-            inputs.forEach(input => {
-                if (!input.value.trim()) {
-                    input.classList.add('is-invalid');
-                    isValid = false;
-                } else {
-                    input.classList.remove('is-invalid');
-                }
-            });
-
-            return isValid;
-        }
-
-        // Example of form submission handler
-        $('form.needs-validation').on('submit', function(e) {
-            e.preventDefault();
-            if (validateForm(this.id)) {
-                // Form is valid, proceed with submission
-                this.submit();
-            }
-        });
-
-        // Remove validation classes when user starts typing
-        $('input, textarea, select').on('input change', function() {
-            if (this.value.trim()) {
-                $(this).removeClass('is-invalid');
-            }
-        });
-
-        // Lazy loading for images
-        if ('loading' in HTMLImageElement.prototype) {
-            const images = document.querySelectorAll('img[loading="lazy"]');
-            images.forEach(img => {
-                img.src = img.dataset.src;
-            });
-        } else {
-            // Fallback for browsers that don't support lazy loading
-            const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/lazysizes/5.3.2/lazysizes.min.js';
-            script.async = true;
-            document.body.appendChild(script);
-        }
-
-        // Handle video modal
-        $('.video-btn').click(function() {
-            const videoSrc = $(this).data('src');
-            $('#videoModal iframe').attr('src', videoSrc + '?autoplay=1');
-        });
-
-        $('#videoModal').on('hidden.bs.modal', function() {
-            $('#videoModal iframe').attr('src', '');
-        });
-
-        // CountUp animation for stats
-        function animateStats() {
-            $('.counter').each(function() {
-                $(this).prop('Counter', 0).animate({
-                    Counter: $(this).text()
+            // Scroll to bottom with smooth animation
+            function scrollToBottom() {
+                const messagesContainer = $('#chat-messages');
+                messagesContainer.animate({
+                    scrollTop: messagesContainer[0].scrollHeight
                 }, {
-                    duration: 2000,
-                    easing: 'swing',
-                    step: function(now) {
-                        $(this).text(Math.ceil(now));
-                    }
+                    duration: 300,
+                    easing: 'swing'
                 });
-            });
+            }
+
+            // Auto-open chat after delay
+            setTimeout(() => {
+                if (!chatInitialized && !$('#chat-window').is(':visible')) {
+                    toggleChat();
+                }
+            }, 30000);
+
+            // Make functions available globally
+            window.toggleChat = toggleChat;
+            window.sendChat = sendEnhancedChat;
+            window.handleQuickReply = handleQuickReply;
         }
 
-        // Initialize stats animation when scrolled to
-        $(window).scroll(function() {
-            if ($('.counter').length && $(window).scrollTop() > $('.counter').offset().top - 500) {
-                animateStats();
-                $(window).off('scroll'); // Remove the handler after first trigger
-            }
-        });
-
-        // Initialize light/dark mode toggle
-        function initTheme() {
-            const themeToggle = $('#theme-toggle');
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            const storedTheme = localStorage.getItem('theme');
-
-            // Set initial theme
-            let theme = storedTheme || (prefersDark ? 'dark' : 'light');
-            setTheme(theme);
-
-            // Toggle theme on button click
-            themeToggle.click(function() {
-                theme = theme === 'dark' ? 'light' : 'dark';
-                setTheme(theme);
-                localStorage.setItem('theme', theme);
-            });
-
-            function setTheme(theme) {
-                document.documentElement.setAttribute('data-bs-theme', theme);
-                themeToggle.find('i').toggleClass('fa-sun fa-moon');
-            }
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-bs-theme', theme);
+            themeToggle.find('i').toggleClass('fa-sun fa-moon');
         }
+
 
         // Initialize theme toggle if element exists
         if ($('#theme-toggle').length) {
