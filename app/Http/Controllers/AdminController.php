@@ -72,16 +72,16 @@ class AdminController extends Controller
         return view('admin.setanggota', compact('adminSetAnggota', 'anggotas'));
     }
 
-public function AddAnggota()
-{
-    $role = DB::table('role_type_users')->get();
-    $komisariat = DB::table('komisariats')->get();
-    $Anggota = DB::table('users')->get();
-    $AddAnggota = User::join('komisariats', 'komisariats.id_komisariat', 'users.id_komisariat')->get();
+    public function AddAnggota()
+    {
+        $role = DB::table('role_type_users')->get();
+        $komisariat = DB::table('komisariats')->get();
+        $Anggota = DB::table('users')->get();
+        $AddAnggota = User::join('komisariats', 'komisariats.id_komisariat', 'users.id_komisariat')->get();
 
-    // Ensure the view name matches the file's name
-    return view('admin.addAnggota', compact('AddAnggota', 'role', 'komisariat', 'Anggota'));
-}
+        // Ensure the view name matches the file's name
+        return view('admin.addAnggota', compact('AddAnggota', 'role', 'komisariat', 'Anggota'));
+    }
 
 
     public function userSave(Request $request)
@@ -271,14 +271,6 @@ public function AddAnggota()
             ->with('success', 'Kegiatan berhasil ditambahkan.');
     }
 
-    public function editKegiatan($id)
-    {
-        $kegiatan = Crudkegiatan::where('id', $id)->first();
-        return view('admin.kegiatan-edit', compact('kegiatan'));
-    }
-
-
-
     public function updateKegiatan(Request $request, $id)
     {
         $request->validate([
@@ -308,6 +300,16 @@ public function AddAnggota()
             ->with('success', 'Kegiatan berhasil diperbarui.');
     }
 
+    public function editKegiatan($id)
+    {
+        $kegiatan = Crudkegiatan::where('id', $id)->first();
+        return view('admin.kegiatan-edit', compact('kegiatan'));
+    }
+
+
+
+
+
     public function destroyKegiatan($id)
     {
         $kegiatan = Crudkegiatan::findOrFail($id);
@@ -335,30 +337,30 @@ public function AddAnggota()
         return view('admin.blog-create');
     }
 
-  public function store(Request $request)
-{
-    $request->validate([
-        'nama_blog' => 'required|string|max:255',
-        'tanggal_blog' => 'required|date',
-        'deskripsi1' => 'required',
-        'deskripsi2' => 'required',
-        'author' => 'required|string|max:100',
-        'gambar' => 'nullable|image|mimes:jpg,png,jpeg,gif|max:3072',
-    ]);
+    public function store(Request $request)
+    {
+        $request->validate([
+            'nama_blog' => 'required|string|max:255',
+            'tanggal_blog' => 'required|date',
+            'deskripsi1' => 'required',
+            'deskripsi2' => 'required',
+            'author' => 'required|string|max:100',
+            'gambar' => 'nullable|image|mimes:jpg,png,jpeg,gif|max:3072',
+        ]);
 
-    $data = $request->all();
+        $data = $request->all();
 
-    if ($request->hasFile('gambar')) {
-        $imageName = time() . '.' . $request->file('gambar')->extension();
-        // Simpan gambar di folder 'public/blog'
-        $request->file('gambar')->storeAs('public/blog', $imageName);
-        $data['gambar'] = 'blog/' . $imageName; // Path relatif
+        if ($request->hasFile('gambar')) {
+            $imageName = time() . '.' . $request->file('gambar')->extension();
+            // Simpan gambar di folder 'public/blog'
+            $request->file('gambar')->storeAs('public/blog', $imageName);
+            $data['gambar'] = 'blog/' . $imageName; // Path relatif
+        }
+
+        Blog::create($data);
+
+        return redirect()->route('admin.k-blog')->with('success', 'Blog berhasil ditambahkan.');
     }
-
-    Blog::create($data);
-
-    return redirect()->route('admin.k-blog')->with('success', 'Blog berhasil ditambahkan.');
-}
 
 
     public function edit($id)
@@ -368,40 +370,40 @@ public function AddAnggota()
         return view('admin.blog-edit', compact('blog'));
     }
 
-  public function update(Request $request, $id)
-{
-    $blog = Blog::findOrFail($id);
+    public function update(Request $request, $id)
+    {
+        $blog = Blog::findOrFail($id);
 
-    $request->validate([
-        'nama_blog' => 'required|string|max:255',
-        'tanggal_blog' => 'required|date',
-        'deskripsi1' => 'required',
-        'deskripsi2' => 'required',
-        'author' => 'required|string|max:100',
-        'gambar' => 'nullable|image|mimes:jpg,png,jpeg,gif|max:3072',
-    ]);
+        $request->validate([
+            'nama_blog' => 'required|string|max:255',
+            'tanggal_blog' => 'required|date',
+            'deskripsi1' => 'required',
+            'deskripsi2' => 'required',
+            'author' => 'required|string|max:100',
+            'gambar' => 'nullable|image|mimes:jpg,png,jpeg,gif|max:3072',
+        ]);
 
-    $data = $request->all();
+        $data = $request->all();
 
-    if ($request->hasFile('gambar')) {
-        // Hapus gambar lama jika ada
-        if ($blog->gambar) {
-            Storage::delete('public/' . $blog->gambar);
+        if ($request->hasFile('gambar')) {
+            // Hapus gambar lama jika ada
+            if ($blog->gambar) {
+                Storage::delete('public/' . $blog->gambar);
+            }
+
+            // Simpan gambar baru di folder 'public/blog'
+            $imageName = time() . '.' . $request->file('gambar')->extension();
+            $request->file('gambar')->storeAs('public/blog', $imageName);
+            $data['gambar'] = 'blog/' . $imageName; // Path relatif
         }
 
-        // Simpan gambar baru di folder 'public/blog'
-        $imageName = time() . '.' . $request->file('gambar')->extension();
-      $request->file('gambar')->storeAs('public/blog', $imageName);
-        $data['gambar'] = 'blog/' . $imageName; // Path relatif
+        $blog->update($data);
+
+        return redirect()->route('admin.k-blog')->with('success', 'Blog berhasil diperbarui!');
     }
 
-    $blog->update($data);
 
-    return redirect()->route('admin.k-blog')->with('success', 'Blog berhasil diperbarui!');
-}
-
-
-   public function destroy($id)
+    public function destroy($id)
     {
         // Cari blog berdasarkan ID
         $blog = Blog::findOrFail($id); // Akan memberikan error 404 jika ID tidak ditemukan
@@ -432,20 +434,20 @@ public function AddAnggota()
         return back();
     }
     public function pageImportAnggota()
-{
-    // Logika untuk menampilkan halaman impor anggota
-    return view('admin.import-anggota');
-}
+    {
+        // Logika untuk menampilkan halaman impor anggota
+        return view('admin.import-anggota');
+    }
 
-public function import_anggota(Request $request)
-{
-    Excel::import(new AnggotaImport, request()->file('file'));
+    public function import_anggota(Request $request)
+    {
+        Excel::import(new AnggotaImport, request()->file('file'));
 
-    Toastr::success('Anggota berhasil diimpor :)', 'Success');
-    return back();
-}
+        Toastr::success('Anggota berhasil diimpor :)', 'Success');
+        return back();
+    }
 
-// export
+    // export
 
 
 
@@ -635,19 +637,19 @@ public function import_anggota(Request $request)
 
         return redirect()->route('admin.k-komis')->with('success', 'Komisariat berhasil ditambahkan!');
     }
-    
-    
+
+
     public function indexComments(Request $request)
-{
-    $comments = PostComment::with('blog')->latest()->get(); // Ambil semua komentar
+    {
+        $comments = PostComment::with('blog')->latest()->get(); // Ambil semua komentar
 
-    $selectedComment = null;
-    if ($request->has('id')) {
-        $selectedComment = PostComment::with('blog')->find($request->id);
+        $selectedComment = null;
+        if ($request->has('id')) {
+            $selectedComment = PostComment::with('blog')->find($request->id);
+        }
+
+        return view('admin.comment', compact('comments', 'selectedComment'));
     }
-
-    return view('admin.comment', compact('comments', 'selectedComment'));
-}
 
     public function showComment($id)
     {
@@ -655,8 +657,8 @@ public function import_anggota(Request $request)
         return view('admin.comment', compact('comment'));
     }
 
-// In your CommentController.php
- public function approveComment($id)
+    // In your CommentController.php
+    public function approveComment($id)
     {
         $comment = PostComment::findOrFail($id);
         $comment->status = 'setuju'; // Ubah status menjadi 'approved'
@@ -675,15 +677,13 @@ public function import_anggota(Request $request)
 
         return redirect()->route('admin.comment')->with('success', 'Komentar berhasil dihapus.');
     }
-    
+
     public function reject($id)
-{
-    $comment = PostComment::findOrFail($id);
-    $comment->status = 'tolak';
-    $comment->save();
+    {
+        $comment = PostComment::findOrFail($id);
+        $comment->status = 'tolak';
+        $comment->save();
 
-    return redirect()->back()->with('success', 'Komentar berhasil ditolak.');
-}
-
-
+        return redirect()->back()->with('success', 'Komentar berhasil ditolak.');
+    }
 }

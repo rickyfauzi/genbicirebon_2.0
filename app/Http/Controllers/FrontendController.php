@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Http\Controllers;
+
 use App\Models\Blog;
 use App\Models\Crudkegiatan;
 use App\Models\Korkom;
@@ -32,7 +33,7 @@ class FrontendController extends Controller
         $topMembers = $korkoms->take(2); // Ambil 2 kartu pertama
         $bottomMembers = $korkoms->slice(2); // Ambil 4 kartu sisanya
         $komisariats = Komisariat::all();
-    
+
         return view('frontend.organization', compact('topMembers', 'bottomMembers', 'komisariats'));
     }
 
@@ -96,9 +97,9 @@ class FrontendController extends Controller
     /**
      * Menampilkan halaman detail program.
      */
-    public function kegiatanDetail($id)
+    public function kegiatanDetail($slug)
     {
-        $kegiatan = Crudkegiatan::findOrFail($id);
+        $kegiatan = Crudkegiatan::where('slug', $slug)->firstOrFail();
         return view('frontend.kegiatan-detail', compact('kegiatan'));
     }
 

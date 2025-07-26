@@ -48,13 +48,13 @@
                                     </span>
                                 </div>
                                 <h5 class="kegiatan-title">
-                                    <a href="{{ route('kegiatan.detail', $kegiatan->id) }}">
+                                    <a href="{{ route('kegiatan.detail', $kegiatan->slug) }}">
                                         {{ $kegiatan->nama_kegiatan }}
                                     </a>
                                 </h5>
                                 <p>{{ Str::limit($kegiatan->deskripsi, 100) }}</p>
                                 <p class="mt-5 mb-0">
-                                    <a href="{{ route('kegiatan.detail', $kegiatan->id) }}">
+                                    <a href="{{ route('kegiatan.detail', $kegiatan->slug) }}">
                                         Selengkapnya <i class="lni lni-arrow-right"></i>
                                     </a>
                                 </p>

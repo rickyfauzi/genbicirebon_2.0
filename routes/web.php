@@ -75,7 +75,7 @@ Route::get('/galeri', [FrontendController::class, 'galeri'])->name('galeri');
 Route::get('/muri', [FrontendController::class, 'muri'])->name('muri');
 Route::get('/p-bichamps', [FrontendController::class, 'pBichamps'])->name('p-bichamps');
 Route::get('/kegiatan', [FrontendController::class, 'kegiatan'])->name('kegiatan');
-Route::get('/kegiatan/{id}', [FrontendController::class, 'kegiatanDetail'])->name('kegiatan.detail');
+Route::get('/kegiatan/{slug}', [FrontendController::class, 'kegiatanDetail'])->name('kegiatan.detail');
 Route::get('/blog', [FrontendController::class, 'blog'])->name('blog');
 Route::get('/blog/{id}', [FrontendController::class, 'blogDetail'])->name('blog.detail');
 Route::get('/tentang-bi', [FrontendController::class, 'tentangBi'])->name('tentang-bi');
