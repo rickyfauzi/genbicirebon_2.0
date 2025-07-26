@@ -51,7 +51,7 @@ jobs:
             **/storage/**
 
             **/public/**
-            **/database/**
+
             **/config/**
             **/test/**
             **/bootstrap/**

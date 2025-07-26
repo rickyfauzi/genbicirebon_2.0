@@ -33,7 +33,7 @@ class Crudkegiatan extends Model
     //         $slug = Str::slug($kegiatan->nama_kegiatan);
     //         $count = Crudkegiatan::where('slug', 'LIKE', "{$slug}%")->count();
     //         $kegiatan->slug = $count ? "{$slug}-{$count}" : $slug;
-    //     });
+    //     });  
 
     //     static::updating(function ($kegiatan) {
     //         $slug = Str::slug($kegiatan->nama_kegiatan);
