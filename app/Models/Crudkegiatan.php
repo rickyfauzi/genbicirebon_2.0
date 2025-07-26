@@ -25,22 +25,22 @@ class Crudkegiatan extends Model
         'tanggal_kegiatan' => 'date',
     ];
 
-    protected static function boot()
-    {
-        parent::boot();
+    // protected static function boot()
+    // {
+    //     parent::boot();
 
-        static::creating(function ($kegiatan) {
-            $slug = Str::slug($kegiatan->nama_kegiatan);
-            $count = Crudkegiatan::where('slug', 'LIKE', "{$slug}%")->count();
-            $kegiatan->slug = $count ? "{$slug}-{$count}" : $slug;
-        });
+    //     static::creating(function ($kegiatan) {
+    //         $slug = Str::slug($kegiatan->nama_kegiatan);
+    //         $count = Crudkegiatan::where('slug', 'LIKE', "{$slug}%")->count();
+    //         $kegiatan->slug = $count ? "{$slug}-{$count}" : $slug;
+    //     });
 
-        static::updating(function ($kegiatan) {
-            $slug = Str::slug($kegiatan->nama_kegiatan);
-            $count = Crudkegiatan::where('slug', 'LIKE', "{$slug}%")
-                ->where('id', '!=', $kegiatan->id)
-                ->count();
-            $kegiatan->slug = $count ? "{$slug}-{$count}" : $slug;
-        });
-    }
+    //     static::updating(function ($kegiatan) {
+    //         $slug = Str::slug($kegiatan->nama_kegiatan);
+    //         $count = Crudkegiatan::where('slug', 'LIKE', "{$slug}%")
+    //             ->where('id', '!=', $kegiatan->id)
+    //             ->count();
+    //         $kegiatan->slug = $count ? "{$slug}-{$count}" : $slug;
+    //     });
+    // }
 }
