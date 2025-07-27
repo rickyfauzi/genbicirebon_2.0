@@ -773,13 +773,9 @@
                             setTimeout(() => {
                                 showQuickReplies(response.quick_replies);
                             }, 500);
-                        } else {
-                            // Show default quick replies if none provided
-                            showContextualQuickReplies(message, response.message);
                         }
                     } else {
                         appendMessage("Maaf, saya tidak dapat memproses pesan Anda saat ini.", 'bot');
-                        showQuickReplies(["Coba lagi", "Menu utama", "Hubungi admin"]);
                     }
                 },
                 error: function(xhr, status, error) {
@@ -805,6 +801,7 @@
                     sendBtn.prop('disabled', false);
                     input.focus();
                 }
+
             });
         }
 
