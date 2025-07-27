@@ -649,161 +649,218 @@
     <script src="{{ asset('assets2/js/main.js') }}"></script>
 
     <script>
-        $(document).ready(function() {
-            // Inisialisasi chat
-            initializeChat();
+        // Chatbot UI Controller - GenBI Assistant
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize chat when page loads
+            initChatSystem();
         });
 
-        // Variabel chat
-        let isTyping = false;
-        let chatInitialized = false;
-        const sessionId = 'genbi-' + Math.random().toString(36).substring(2, 15);
+        // Chat System Core
+        const ChatSystem = (function() {
+            // Private variables
+            let isTyping = false;
+            let chatInitialized = false;
+            const sessionId = 'genbi-' + Math.random().toString(36).substring(2, 15);
+            const typingDelay = 300; // ms delay between actions
 
-        function initializeChat() {
-            // Event listener untuk input chat
-            $('#chat-input').on('keypress', function(e) {
-                if (e.which === 13 && !e.shiftKey) {
-                    e.preventDefault();
-                    sendChat();
+            // DOM Elements
+            const elements = {
+                chatInput: document.getElementById('chat-input'),
+                sendBtn: document.getElementById('send-btn'),
+                chatWindow: document.getElementById('chat-window'),
+                chatMessages: document.getElementById('chat-messages'),
+                toggleBtn: document.getElementById('chat-toggle')
+            };
+
+            // Initialize all chat functionality
+            function init() {
+                setupEventListeners();
+                setupCSRF();
+                autoOpenChat();
+            }
+
+            // Set up all event listeners
+            function setupEventListeners() {
+                // Message input handling
+                elements.chatInput.addEventListener('keypress', function(e) {
+                    if (e.which === 13 && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMessage();
+                    }
+                });
+
+                // Send button click
+                elements.sendBtn.addEventListener('click', sendMessage);
+
+                // Chat toggle
+                if (elements.toggleBtn) {
+                    elements.toggleBtn.addEventListener('click', toggleChat);
                 }
-            });
 
-            $('#send-btn').on('click', sendChat);
-        }
+                // Auto-focus when chat is opened
+                elements.chatWindow.addEventListener('shown.bs.collapse', function() {
+                    elements.chatInput.focus();
+                    if (!chatInitialized) {
+                        showWelcomeMessage();
+                        chatInitialized = true;
+                    }
+                });
+            }
 
-        function sendChat() {
-            const input = $('#chat-input');
-            const message = input.val().trim();
+            // Setup CSRF token for AJAX requests
+            function setupCSRF() {
+                $.ajaxSetup({
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                    }
+                });
+            }
 
-            if (!message || isTyping) return;
+            // Auto-open chat after delay
+            function autoOpenChat() {
+                setTimeout(() => {
+                    if (!chatInitialized && !elements.chatWindow.classList.contains('show')) {
+                        new bootstrap.Collapse(elements.chatWindow).show();
+                    }
+                }, 30000);
+            }
 
-            // Reset input
-            input.val('');
-            $('#send-btn').prop('disabled', true);
+            // Toggle chat visibility
+            function toggleChat() {
+                const chatCollapse = new bootstrap.Collapse(elements.chatWindow);
+                chatCollapse.toggle();
+            }
 
-            // Tampilkan pesan user
-            appendMessage(message, 'user');
-            showTypingIndicator();
+            // Send message to server
+            function sendMessage() {
+                const message = elements.chatInput.value.trim();
+                if (!message || isTyping) return;
 
-            // Kirim ke server
-            $.ajax({
-                url: "{{ route('chatbot.sendMessage') }}",
-                type: 'POST',
-                data: {
-                    message: message,
-                    session_id: sessionId
-                },
-                success: function(response) {
-                    handleResponse(response);
-                },
-                error: function(xhr) {
-                    handleError(xhr);
-                },
-                complete: function() {
-                    $('#send-btn').prop('disabled', false);
-                    input.focus();
-                }
-            });
-        }
+                // Clear input and disable button
+                elements.chatInput.value = '';
+                elements.sendBtn.disabled = true;
 
-        function handleResponse(response) {
-            hideTypingIndicator();
+                // Display user message
+                appendMessage(message, 'user');
 
-            if (response && response.message) {
-                appendMessage(response.message, 'bot');
+                // Show typing indicator
+                showTypingIndicator();
 
-                // Tampilkan quick replies dinamis dari Dialogflow
-                if (response.quick_replies && response.quick_replies.length > 0) {
-                    showQuickReplies(response.quick_replies);
+                // AJAX request to server
+                $.ajax({
+                    url: "{{ route('chatbot.sendMessage') }}",
+                    type: 'POST',
+                    data: {
+                        message: message,
+                        session_id: sessionId
+                    },
+                    success: handleSuccessResponse,
+                    error: handleErrorResponse,
+                    complete: function() {
+                        elements.sendBtn.disabled = false;
+                        elements.chatInput.focus();
+                    }
+                });
+            }
+
+            // Handle successful response from server
+            function handleSuccessResponse(response) {
+                hideTypingIndicator();
+
+                if (response && response.message) {
+                    appendMessage(response.message, 'bot');
+
+                    // Process quick replies
+                    setTimeout(() => {
+                        if (response.quick_replies && response.quick_replies.length > 0) {
+                            showQuickReplies(response.quick_replies);
+                        } else {
+                            showContextualQuickReplies(response.message);
+                        }
+                    }, typingDelay);
                 } else {
-                    // Fallback ke quick replies default jika tidak ada dari Dialogflow
-                    showDefaultQuickReplies();
+                    appendMessage("Maaf, saya tidak dapat memproses pesan Anda saat ini.", 'bot');
+                    showQuickReplies(["Coba lagi", "Menu utama", "Hubungi admin"]);
                 }
-            } else {
-                appendMessage("Maaf, saya tidak bisa memproses pesan Anda.", 'bot');
-                showErrorQuickReplies();
-            }
-        }
-
-        function handleError(xhr) {
-            hideTypingIndicator();
-
-            let errorMessage = "Terjadi gangguan koneksi";
-            let quickReplies = ["Coba lagi", "Menu utama"];
-
-            if (xhr.status === 500) {
-                errorMessage = "Sedang ada masalah teknis";
-                quickReplies = ["Refresh halaman", "Hubungi admin"];
             }
 
-            appendMessage(errorMessage, 'bot');
-            showQuickReplies(quickReplies);
-        }
+            // Handle error response
+            function handleErrorResponse(xhr) {
+                hideTypingIndicator();
 
-        function showQuickReplies(replies) {
-            // Hapus quick replies sebelumnya
-            $('.quick-replies').remove();
+                let errorMessage = "Maaf, terjadi gangguan koneksi";
+                let quickReplies = ["Coba lagi", "Menu utama"];
 
-            const quickRepliesHTML = `
-        <div class="quick-replies">
-            ${replies.map(reply => 
-                `<button class="quick-reply" onclick="handleQuickReply('${escapeHtml(reply)}')">
-                        ${reply}
-                    </button>`
-            ).join('')}
-        </div>
-    `;
+                if (xhr.status === 500) {
+                    errorMessage = "Sedang ada masalah teknis, tim kami sedang memperbaikinya";
+                    quickReplies = ["Refresh halaman", "Hubungi admin"];
+                } else if (xhr.status === 429) {
+                    errorMessage = "Terlalu banyak permintaan, silakan tunggu sebentar";
+                }
 
-            $('#chat-messages').append(quickRepliesHTML);
-            scrollToBottom();
-        }
+                appendMessage(errorMessage, 'bot');
+                showQuickReplies(quickReplies);
+            }
 
-        function showDefaultQuickReplies() {
-            const defaultReplies = [
-                "Info beasiswa",
-                "Program unggulan",
-                "Cara mendaftar",
-                "Hubungi admin"
-            ];
-            showQuickReplies(defaultReplies);
-        }
+            // Show welcome message
+            function showWelcomeMessage() {
+                appendMessage(
+                    "Halo! Saya GenBI Assistant. Ada yang bisa saya bantu tentang program GenBI Cirebon?",
+                    'bot'
+                );
 
-        function showErrorQuickReplies() {
-            showQuickReplies(["Coba lagi", "Menu utama", "Hubungi admin"]);
-        }
+                setTimeout(() => {
+                    showQuickReplies([
+                        "Apa itu GenBI?",
+                        "Syarat beasiswa GenBI",
+                        "Program unggulan",
+                        "Cara mendaftar"
+                    ]);
+                }, typingDelay);
+            }
 
-        function handleQuickReply(text) {
-            $('#chat-input').val(text);
-            sendChat();
-            $('.quick-replies').remove();
-        }
+            // Append message to chat
+            function appendMessage(text, sender) {
+                const timestamp = new Date().toLocaleTimeString('id-ID', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
 
-        // Fungsi utilitas
-        function appendMessage(text, sender) {
-            const timestamp = new Date().toLocaleTimeString('id-ID', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-            const messageHTML = `
-        <div class="msg-row msg-${sender}">
-            ${sender === 'bot' ? 
-                `<img src="{{ asset('assets2/images/logo.png') }}" class="chat-avatar bot">` : 
-                '<div class="chat-avatar user">U</div>'}
-            <div class="msg-bubble ${sender}">
-                ${sender === 'user' ? escapeHtml(text) : text}
-                <div class="message-timestamp">${timestamp}</div>
-            </div>
-        </div>
-    `;
-            $('#chat-messages').append(messageHTML);
-            scrollToBottom();
-        }
+                const messageElement = document.createElement('div');
+                messageElement.className = `msg-row msg-${sender}`;
 
-        function showTypingIndicator() {
-            isTyping = true;
-            $('#chat-messages').append(`
-        <div class="msg-row msg-bot" id="typing-indicator">
-            <img src="{{ asset('assets2/images/logo.png') }}" class="chat-avatar bot">
+                if (sender === 'bot') {
+                    messageElement.innerHTML = `
+                <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
+                <div class="msg-bubble bot">
+                    ${text}
+                    <div class="message-timestamp">${timestamp}</div>
+                </div>
+            `;
+                } else {
+                    messageElement.innerHTML = `
+                <div class="msg-bubble user">
+                    ${escapeHtml(text)}
+                    <div class="message-timestamp">${timestamp}</div>
+                </div>
+                <div class="chat-avatar user">U</div>
+            `;
+                }
+
+                elements.chatMessages.appendChild(messageElement);
+                scrollToBottom();
+            }
+
+            // Show typing indicator
+            function showTypingIndicator() {
+                if (isTyping) return;
+
+                isTyping = true;
+                const typingElement = document.createElement('div');
+                typingElement.id = 'typing-indicator';
+                typingElement.className = 'msg-row msg-bot';
+                typingElement.innerHTML = `
+            <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
             <div class="msg-bubble bot typing-indicator">
                 <div class="typing-dots">
                     <div class="typing-dot"></div>
@@ -811,32 +868,98 @@
                     <div class="typing-dot"></div>
                 </div>
             </div>
-        </div>
-    `);
-            scrollToBottom();
-        }
+        `;
 
-        function hideTypingIndicator() {
-            isTyping = false;
-            $('#typing-indicator').remove();
-        }
+                elements.chatMessages.appendChild(typingElement);
+                scrollToBottom();
+            }
 
-        function scrollToBottom() {
-            const container = $('#chat-messages');
-            container.animate({
-                scrollTop: container[0].scrollHeight
-            }, 300);
-        }
+            // Hide typing indicator
+            function hideTypingIndicator() {
+                isTyping = false;
+                const indicator = document.getElementById('typing-indicator');
+                if (indicator) {
+                    indicator.remove();
+                }
+            }
 
-        function escapeHtml(text) {
-            const map = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
+            // Show quick replies
+            function showQuickReplies(replies) {
+                // Remove existing quick replies
+                const existingReplies = document.querySelectorAll('.quick-replies');
+                existingReplies.forEach(el => el.remove());
+
+                if (!replies || replies.length === 0) return;
+
+                const repliesContainer = document.createElement('div');
+                repliesContainer.className = 'quick-replies';
+
+                replies.forEach(reply => {
+                    const button = document.createElement('button');
+                    button.className = 'quick-reply';
+                    button.textContent = reply;
+                    button.addEventListener('click', function() {
+                        elements.chatInput.value = reply;
+                        sendMessage();
+                        repliesContainer.remove();
+                    });
+                    repliesContainer.appendChild(button);
+                });
+
+                elements.chatMessages.appendChild(repliesContainer);
+                scrollToBottom();
+            }
+
+            // Show contextual quick replies based on conversation
+            function showContextualQuickReplies(botResponse) {
+                const responseText = botResponse.toLowerCase();
+                let replies = [];
+
+                if (responseText.includes('beasiswa')) {
+                    replies = ["Syarat pendaftaran", "Dokumen yang dibutuhkan", "Timeline pendaftaran"];
+                } else if (responseText.includes('program') || responseText.includes('kegiatan')) {
+                    replies = ["Program sosial", "Program edukasi", "Event mendatang"];
+                } else if (responseText.includes('daftar') || responseText.includes('pendaftaran')) {
+                    replies = ["Formulir pendaftaran", "Persyaratan dokumen", "Jadwal seleksi"];
+                } else {
+                    replies = ["Info lebih lanjut", "Hubungi admin", "FAQ lainnya"];
+                }
+
+                showQuickReplies(replies);
+            }
+
+            // Scroll to bottom of chat
+            function scrollToBottom() {
+                setTimeout(() => {
+                    elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+                }, 100);
+            }
+
+            // Escape HTML to prevent XSS
+            function escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            // Public API
+            return {
+                init: init
             };
-            return text.replace(/[&<>"']/g, m => map[m]);
+        })();
+
+        // Initialize the chat system
+        function initChatSystem() {
+            ChatSystem.init();
+        }
+
+        // Global function for quick reply handling (if needed)
+        function handleQuickReply(text) {
+            const input = document.getElementById('chat-input');
+            if (input) {
+                input.value = text;
+                ChatSystem.sendMessage();
+            }
         }
     </script>
 </body>
