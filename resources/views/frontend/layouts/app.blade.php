@@ -616,901 +616,1530 @@
     <script src="{{ asset('assets2/js/main.js') }}"></script>
 
     <script>
-        $(document).ready(function() {
-            // Setup CSRF Token untuk semua request AJAX
-            $.ajaxSetup({
-                headers: {
-                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+        /**
+         * GenBI Chatbot - Main JavaScript Module
+         * Refactored and organized for better maintainability
+         */
+
+        // Main Chatbot Class
+        class GenBIChatbot {
+            constructor() {
+                // Configuration
+                this.config = {
+                    maxRetries: 3,
+                    retryDelay: 1000,
+                    maxMessageLength: 500,
+                    typingDelay: 800,
+                    suggestionLimit: 4,
+                    sessionTimeout: 30 * 60 * 1000, // 30 minutes
+                    autoOpenDelay: 30000, // 30 seconds
+                    refreshSuggestionsDelay: 30000 // 30 seconds
+                };
+
+                // State management
+                this.state = {
+                    isTyping: false,
+                    chatInitialized: false,
+                    isVisible: false,
+                    conversationHistory: [],
+                    lastDetectedIntent: null,
+                    retryCount: 0,
+                    sessionId: this.generateSessionId(),
+                    currentSuggestions: []
+                };
+
+                // DOM elements cache
+                this.elements = {};
+
+                // Event handlers
+                this.handlers = {};
+
+                // Timers
+                this.timers = {
+                    autoOpen: null,
+                    suggestionRefresh: null,
+                    sessionTimeout: null
+                };
+
+                // Initialize
+                this.init();
+            }
+
+            /**
+             * Initialize the chatbot
+             */
+            init() {
+                this.setupCSRF();
+                this.cacheElements();
+                this.bindEvents();
+                this.setupAutoFeatures();
+                this.initializeSessionTimeout();
+            }
+
+            /**
+             * Generate unique session ID
+             */
+            generateSessionId() {
+                return 'genbi-' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+            }
+
+            /**
+             * Setup CSRF token for AJAX requests
+             */
+            setupCSRF() {
+                $.ajaxSetup({
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                    }
+                });
+            }
+
+            /**
+             * Cache DOM elements for better performance
+             */
+            cacheElements() {
+                this.elements = {
+                    chatFloat: $('#chat-float'),
+                    chatWindow: $('#chat-window'),
+                    chatMessages: $('#chat-messages'),
+                    chatInput: $('#chat-input'),
+                    sendBtn: $('#send-btn'),
+                    inputContainer: $('#chat-input-container'),
+                    welcomeMessage: $('.welcome-message'),
+                    loadingSpinner: $('#loading-spinner')
+                };
+            }
+
+            /**
+             * Bind all event handlers
+             */
+            bindEvents() {
+                // Chat toggle
+                this.elements.chatFloat.on('click', () => this.toggleChat());
+                $('.chat-close').on('click', () => this.toggleChat());
+
+                // Message sending
+                this.elements.sendBtn.on('click', () => this.sendMessage());
+                this.elements.chatInput.on('keypress', (e) => {
+                    if (e.which === 13 && !e.shiftKey) {
+                        e.preventDefault();
+                        this.sendMessage();
+                    }
+                });
+
+                // Input focus management
+                $(document).on('keydown', (e) => {
+                    if (this.state.isVisible &&
+                        !['input', 'textarea'].includes(e.target.tagName.toLowerCase())) {
+                        this.elements.chatInput.focus();
+                    }
+                });
+
+                // Quick reply handling
+                $(document).on('click', '.quick-reply', (e) => {
+                    this.handleQuickReply(e.target.textContent.trim());
+                });
+
+                // Window focus/blur for session management
+                $(window).on('focus', () => this.resetSessionTimeout());
+                $(window).on('blur', () => this.startSessionTimeout());
+            }
+
+            /**
+             * Setup automatic features
+             */
+            setupAutoFeatures() {
+                // Auto-open chat after delay
+                this.timers.autoOpen = setTimeout(() => {
+                    if (!this.state.chatInitialized && !this.state.isVisible) {
+                        this.toggleChat();
+                    }
+                }, this.config.autoOpenDelay);
+
+                // Hide loading spinner
+                this.elements.loadingSpinner.fadeOut();
+            }
+
+            /**
+             * Toggle chat window visibility
+             */
+            toggleChat() {
+                const isCurrentlyVisible = this.elements.chatWindow.is(':visible');
+
+                if (isCurrentlyVisible) {
+                    this.hideChat();
+                } else {
+                    this.showChat();
                 }
-            });
+            }
 
-            // Hide loading spinner when page is ready
-            $('#loading-spinner').fadeOut();
+            /**
+             * Show chat window
+             */
+            showChat() {
+                this.state.isVisible = true;
+                this.elements.chatWindow.addClass('show').fadeIn(300);
+                this.elements.chatInput.focus();
 
-            // Initialize chat
-            initializeChat();
-        });
-
-        // Chat variables
-        let isTyping = false;
-        let chatInitialized = false;
-        const sessionId = 'genbi-' + Math.random().toString(36).substring(2, 15);
-
-        // Initialize chat functionality
-        function initializeChat() {
-            // Event listener for Enter key in input
-            $('#chat-input').on('keypress', function(e) {
-                if (e.which === 13 && !e.shiftKey) {
-                    e.preventDefault();
-                    sendChat();
+                // Clear auto-open timer
+                if (this.timers.autoOpen) {
+                    clearTimeout(this.timers.autoOpen);
+                    this.timers.autoOpen = null;
                 }
-            });
 
-            // Auto-focus input when typing
-            $(document).on('keydown', function(e) {
-                if (!$('#chat-window').is(':visible')) return;
-                if (e.target.tagName.toLowerCase() !== 'input' && e.target.tagName
-                    .toLowerCase() !== 'textarea') {
-                    $('#chat-input').focus();
-                }
-            });
-        }
-
-        // Toggle chat window
-        function toggleChat() {
-            const chatWindow = $('#chat-window');
-            const isVisible = chatWindow.is(':visible');
-
-            if (isVisible) {
-                chatWindow.removeClass('show').fadeOut(300);
-            } else {
-                chatWindow.addClass('show').fadeIn(300);
-                $('#chat-input').focus();
-
-                // Send welcome message if first time
-                if (!chatInitialized) {
+                // Show welcome message if first time
+                if (!this.state.chatInitialized) {
                     setTimeout(() => {
-                        showWelcomeMessage();
-                        chatInitialized = true;
-                    }, 2000);
+                        this.showWelcomeMessage();
+                        this.state.chatInitialized = true;
+                    }, 1500);
+                }
+
+                this.resetSessionTimeout();
+            }
+
+            /**
+             * Hide chat window
+             */
+            hideChat() {
+                this.state.isVisible = false;
+                this.elements.chatWindow.removeClass('show').fadeOut(300);
+            }
+
+            /**
+             * Send message to server
+             */
+            async sendMessage() {
+                const message = this.elements.chatInput.val().trim();
+
+                if (!this.validateMessage(message)) {
+                    return;
+                }
+
+                // Prepare UI for sending
+                this.prepareMessageSend(message);
+
+                try {
+                    const response = await this.sendToServer(message);
+                    this.handleSuccessResponse(response);
+                } catch (error) {
+                    this.handleErrorResponse(error);
+                } finally {
+                    this.finalizeSend();
                 }
             }
-        }
 
-        // Show welcome message with quick replies
-        function showWelcomeMessage() {
-            $('.welcome-message').fadeOut(300, function() {
-                appendMessage(
-                    "Halo! Saya GenBI Assistant. Ada yang bisa saya bantu tentang program GenBI Cirebon?",
-                    'bot',
-                    true
-                );
+            /**
+             * Validate message before sending
+             */
+            validateMessage(message) {
+                if (!message || this.state.isTyping) {
+                    return false;
+                }
 
-                setTimeout(() => {
-                    showQuickReplies([
-                        "Apa itu GenBI?",
-                        "Syarat beasiswa GenBI",
-                        "Program unggulan",
-                        "Cara mendaftar"
-                    ]);
-                }, 1000);
-            });
-        }
+                if (message.length > this.config.maxMessageLength) {
+                    this.showToast('Pesan terlalu panjang. Maksimal ' + this.config.maxMessageLength + ' karakter.',
+                        'warning');
+                    return false;
+                }
 
-        // Send message function
-        function sendChat() {
-            const input = $('#chat-input');
-            const message = input.val().trim();
-            const sendBtn = $('#send-btn');
+                return true;
+            }
 
-            if (!message || isTyping) return;
+            /**
+             * Prepare UI for message sending
+             */
+            prepareMessageSend(message) {
+                this.elements.chatInput.val('');
+                this.elements.sendBtn.prop('disabled', true);
+                this.appendMessage(message, 'user');
+                this.showTypingIndicator();
+                this.state.retryCount = 0;
+            }
 
-            // Clear input and disable send button
-            input.val('');
-            sendBtn.prop('disabled', true);
-
-            // Show user message
-            appendMessage(message, 'user');
-
-            // Show typing indicator
-            showTypingIndicator();
-
-            // Send to server
-            $.ajax({
-                url: "{{ route('chatbot.sendMessage') }}",
-                type: 'POST',
-                data: {
+            /**
+             * Send message to server with retry logic
+             */
+            async sendToServer(message, retryCount = 0) {
+                const requestData = {
                     message: message,
-                    session_id: sessionId
-                },
-                timeout: 10000,
-                success: function(response) {
-                    hideTypingIndicator();
+                    session_id: this.state.sessionId,
+                    conversation_history: this.state.conversationHistory.slice(-5) // Last 5 intents
+                };
 
-                    if (response && response.message) {
-                        appendMessage(response.message, 'bot');
+                try {
+                    const response = await $.ajax({
+                        url: window.routes?.chatbotSendMessage || '/chatbot/send-message',
+                        type: 'POST',
+                        data: requestData,
+                        timeout: 15000
+                    });
 
-                        // Show contextual quick replies
-                        setTimeout(() => {
-                            showContextualQuickReplies(message, response.message);
-                        }, 500);
-                    } else {
-                        appendMessage("Maaf, saya tidak dapat memproses pesan Anda saat ini.", 'bot');
+                    return response;
+                } catch (error) {
+                    if (retryCount < this.config.maxRetries && this.shouldRetry(error)) {
+                        await this.delay(this.config.retryDelay * (retryCount + 1));
+                        return this.sendToServer(message, retryCount + 1);
                     }
-                },
-                error: function(xhr, status, error) {
-                    hideTypingIndicator();
-                    console.error('Chat Error:', error);
-
-                    let errorMessage = "Maaf, terjadi kesalahan saat menghubungi server.";
-
-                    if (status === 'timeout') {
-                        errorMessage = "Koneksi timeout. Silakan coba lagi.";
-                    } else if (xhr.status === 429) {
-                        errorMessage = "Terlalu banyak pesan. Silakan tunggu sebentar.";
-                    } else if (xhr.status === 500) {
-                        errorMessage = "Terjadi kesalahan server. Tim kami sedang memperbaikinya.";
-                    }
-
-                    appendMessage(errorMessage, 'bot');
-                },
-                complete: function() {
-                    sendBtn.prop('disabled', false);
-                    input.focus();
+                    throw error;
                 }
-            });
-        }
-
-        // Append message to chat
-        function appendMessage(text, sender, isWelcome = false) {
-            const messagesContainer = $('#chat-messages');
-            const timestamp = new Date().toLocaleTimeString('id-ID', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-
-            let messageHTML = '';
-
-            if (sender === 'user') {
-                messageHTML = `
-                    <div class="msg-row msg-user">
-                        <div class="msg-bubble user">
-                            ${escapeHtml(text)}
-                            <div style="font-size: 11px; opacity: 0.7; margin-top: 4px;">${timestamp}</div>
-                        </div>
-                        <div class="chat-avatar user">U</div>
-                    </div>
-                `;
-            } else {
-                messageHTML = `
-                    <div class="msg-row msg-bot">
-                        <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
-                        <div class="msg-bubble bot">
-                            ${text}
-                            <div style="font-size: 11px; opacity: 0.5; margin-top: 4px;">${timestamp}</div>
-                        </div>
-                    </div>
-                `;
             }
 
-            messagesContainer.append(messageHTML);
-            scrollToBottom();
-        }
+            /**
+             * Handle successful server response
+             */
+            handleSuccessResponse(response) {
+                this.hideTypingIndicator();
 
-        // Show typing indicator
-        function showTypingIndicator() {
-            if (isTyping) return;
+                if (response?.message) {
+                    this.appendMessage(response.message, 'bot');
+                    this.updateConversationState(response);
 
-            isTyping = true;
-            const typingHTML = `
-                <div class="msg-row msg-bot" id="typing-indicator">
-                    <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
-                    <div class="msg-bubble bot typing-indicator">
-                        <div class="typing-dots">
-                            <div class="typing-dot"></div>
-                            <div class="typing-dot"></div>
-                            <div class="typing-dot"></div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            $('#chat-messages').append(typingHTML);
-            scrollToBottom();
-        }
-
-        // Hide typing indicator
-        function hideTypingIndicator() {
-            isTyping = false;
-            $('#typing-indicator').remove();
-        }
-
-        // Show quick replies
-        function showQuickReplies(replies) {
-            const quickRepliesHTML = `
-                <div class="quick-replies">
-                    ${replies.map(reply =>
-                        `<button class="quick-reply" onclick="handleQuickReply('${escapeHtml(reply)}')">${reply}</button>`
-                    ).join('')}
-                </div>
-            `;
-
-            $('#chat-messages .msg-row:last-child .msg-bubble').append(quickRepliesHTML);
-            scrollToBottom();
-        }
-
-        // Show contextual quick replies based on conversation
-        function showContextualQuickReplies(userMessage, botResponse) {
-            const message = userMessage.toLowerCase();
-            let replies = [];
-
-            if (message.includes('genbi') || message.includes('apa itu')) {
-                replies = ["Syarat beasiswa", "Program unggulan", "Cara mendaftar"];
-            } else if (message.includes('syarat') || message.includes('persyaratan')) {
-                replies = ["Dokumen yang dibutuhkan", "Timeline pendaftaran", "Tips lolos seleksi"];
-            } else if (message.includes('program') || message.includes('kegiatan')) {
-                replies = ["Program sosial", "Program edukasi", "Event mendatang"];
-            } else if (message.includes('daftar') || message.includes('mendaftar')) {
-                replies = ["Syarat pendaftaran", "Link pendaftaran", "Kontak admin"];
-            } else {
-                // Default replies
-                replies = ["Info lebih lanjut", "Hubungi admin", "FAQ lainnya"];
-            }
-
-            if (replies.length > 0) {
-                showQuickReplies(replies);
-            }
-        }
-
-        // Handle quick reply click
-        function handleQuickReply(text) {
-            $('#chat-input').val(text);
-            sendChat();
-
-            // Remove quick replies after selection
-            $('.quick-replies').fadeOut(200, function() {
-                $(this).remove();
-            });
-        }
-
-        // Scroll to bottom of messages
-        function scrollToBottom() {
-            const messagesContainer = $('#chat-messages');
-            messagesContainer.animate({
-                scrollTop: messagesContainer[0].scrollHeight
-            }, 300);
-        }
-
-        // Escape HTML to prevent XSS
-        function escapeHtml(text) {
-            const map = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            };
-            return text.replace(/[&<>"']/g, function(m) {
-                return map[m];
-            });
-        }
-
-        // Auto-open chat after 30 seconds if not interacted
-        setTimeout(() => {
-            if (!chatInitialized && !$('#chat-window').is(':visible')) {
-                toggleChat();
-            }
-        }, 30000);
-
-        // Initialize other scripts
-        document.addEventListener("DOMContentLoaded", function() {
-            // Initialize AOS
-            if (typeof AOS !== 'undefined') {
-                AOS.init();
-            }
-
-            // Initialize WOW
-            // Initialize WOW
-            if (typeof WOW !== 'undefined') {
-                new WOW().init();
-            }
-
-            // Initialize Typed.js if elements exist
-            if ($('.typed-text-output').length) {
-                const typedStrings = $('.typed-text').text();
-                const typed = new Typed('.typed-text-output', {
-                    strings: typedStrings.split(','),
-                    typeSpeed: 100,
-                    backSpeed: 20,
-                    smartBackspace: false,
-                    loop: true
-                });
-            }
-
-            // Magnific Popup for image galleries
-            if (typeof $.fn.magnificPopup !== 'undefined') {
-                $('.popup-image').magnificPopup({
-                    type: 'image',
-                    closeOnContentClick: true,
-                    mainClass: 'mfp-img-mobile',
-                    image: {
-                        verticalFit: true
-                    }
-                });
-            }
-
-            // Smooth scrolling for anchor links
-            $('a[href*="#"]').not('[href="#"]').not('[href="#0"]').click(function(event) {
-                if (
-                    location.pathname.replace(/^\//, '') == this.pathname.replace(/^\//, '') &&
-                    location.hostname == this.hostname
-                ) {
-                    let target = $(this.hash);
-                    target = target.length ? target : $('[name=' + this.hash.slice(1) + ']');
-                    if (target.length) {
-                        event.preventDefault();
-                        $('html, body').animate({
-                            scrollTop: target.offset().top - 100
-                        }, 1000, 'easeInOutExpo');
-                    }
-                }
-            });
-
-            // Back to top button
-            $(window).scroll(function() {
-                if ($(this).scrollTop() > 300) {
-                    $('.back-to-top').fadeIn('slow');
-                } else {
-                    $('.back-to-top').fadeOut('slow');
-                }
-            });
-
-            $('.back-to-top').click(function() {
-                $('html, body').animate({
-                    scrollTop: 0
-                }, 1500, 'easeInOutExpo');
-                return false;
-            });
-
-            // Mobile navigation toggle
-            $('.navbar-toggler').click(function() {
-                $('.navbar-collapse').slideToggle(300);
-            });
-
-            // Close mobile menu when clicking on a link
-            $('.navbar-nav a').click(function() {
-                if ($('.navbar-toggler').is(':visible')) {
-                    $('.navbar-collapse').slideUp(300);
-                }
-            });
-
-            // Prevent dropdown from closing when clicking inside
-            $('.dropdown-menu').click(function(e) {
-                e.stopPropagation();
-            });
-
-            // Initialize tooltips
-            if (typeof $.fn.tooltip !== 'undefined') {
-                $('[data-bs-toggle="tooltip"]').tooltip();
-            }
-
-            // Initialize popovers
-            if (typeof $.fn.popover !== 'undefined') {
-                $('[data-bs-toggle="popover"]').popover();
-            }
-        });
-
-        // Cookie consent banner
-        function checkCookieConsent() {
-            if (!localStorage.getItem('cookieConsent')) {
-                $('#cookie-consent').removeClass('d-none');
-            }
-        }
-
-        function acceptCookies() {
-            localStorage.setItem('cookieConsent', 'accepted');
-            $('#cookie-consent').fadeOut();
-        }
-
-        // Check cookie consent on page load
-        $(window).on('load', function() {
-            checkCookieConsent();
-        });
-
-        // Form validation example
-        function validateForm(formId) {
-            const form = document.getElementById(formId);
-            if (!form) return false;
-
-            let isValid = true;
-            const inputs = form.querySelectorAll('input[required], textarea[required], select[required]');
-
-            inputs.forEach(input => {
-                if (!input.value.trim()) {
-                    input.classList.add('is-invalid');
-                    isValid = false;
-                } else {
-                    input.classList.remove('is-invalid');
-                }
-            });
-
-            return isValid;
-        }
-
-        // Example of form submission handler
-        $('form.needs-validation').on('submit', function(e) {
-            e.preventDefault();
-            if (validateForm(this.id)) {
-                // Form is valid, proceed with submission
-                this.submit();
-            }
-        });
-
-        // Remove validation classes when user starts typing
-        $('input, textarea, select').on('input change', function() {
-            if (this.value.trim()) {
-                $(this).removeClass('is-invalid');
-            }
-        });
-
-        // Lazy loading for images
-        if ('loading' in HTMLImageElement.prototype) {
-            const images = document.querySelectorAll('img[loading="lazy"]');
-            images.forEach(img => {
-                img.src = img.dataset.src;
-            });
-        } else {
-            // Fallback for browsers that don't support lazy loading
-            const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/lazysizes/5.3.2/lazysizes.min.js';
-            script.async = true;
-            document.body.appendChild(script);
-        }
-
-        // Handle video modal
-        $('.video-btn').click(function() {
-            const videoSrc = $(this).data('src');
-            $('#videoModal iframe').attr('src', videoSrc + '?autoplay=1');
-        });
-
-        $('#videoModal').on('hidden.bs.modal', function() {
-            $('#videoModal iframe').attr('src', '');
-        });
-
-        // CountUp animation for stats
-        function animateStats() {
-            $('.counter').each(function() {
-                $(this).prop('Counter', 0).animate({
-                    Counter: $(this).text()
-                }, {
-                    duration: 2000,
-                    easing: 'swing',
-                    step: function(now) {
-                        $(this).text(Math.ceil(now));
-                    }
-                });
-            });
-        }
-
-        // Initialize stats animation when scrolled to
-        $(window).scroll(function() {
-            if ($('.counter').length && $(window).scrollTop() > $('.counter').offset().top - 500) {
-                animateStats();
-                $(window).off('scroll'); // Remove the handler after first trigger
-            }
-        });
-
-        // Initialize light/dark mode toggle
-        function initTheme() {
-            const themeToggle = $('#theme-toggle');
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            const storedTheme = localStorage.getItem('theme');
-
-            // Set initial theme
-            let theme = storedTheme || (prefersDark ? 'dark' : 'light');
-            setTheme(theme);
-
-            // Toggle theme on button click
-            themeToggle.click(function() {
-                theme = theme === 'dark' ? 'light' : 'dark';
-                setTheme(theme);
-                localStorage.setItem('theme', theme);
-            });
-
-            function setTheme(theme) {
-                document.documentElement.setAttribute('data-bs-theme', theme);
-                themeToggle.find('i').toggleClass('fa-sun fa-moon');
-            }
-        }
-
-        // Initialize theme toggle if element exists
-        if ($('#theme-toggle').length) {
-            initTheme();
-        }
-
-
-        // Enhanced Chat variables for dynamic suggestions
-        let isTyping = false;
-        let chatInitialized = false;
-        let conversationHistory = [];
-        let lastDetectedIntent = null;
-        const sessionId = 'genbi-' + Math.random().toString(36).substring(2, 15);
-
-        // Enhanced sendChat function with conversation tracking
-        function sendChat() {
-            const input = $('#chat-input');
-            const message = input.val().trim();
-            const sendBtn = $('#send-btn');
-
-            if (!message || isTyping) return;
-
-            // Clear input and disable send button
-            input.val('');
-            sendBtn.prop('disabled', true);
-
-            // Show user message
-            appendMessage(message, 'user');
-
-            // Show typing indicator
-            showTypingIndicator();
-
-            // Send to server
-            $.ajax({
-                url: "{{ route('chatbot.sendMessage') }}",
-                type: 'POST',
-                data: {
-                    message: message,
-                    session_id: sessionId,
-                    conversation_history: conversationHistory
-                },
-                timeout: 15000,
-                success: function(response) {
-                    hideTypingIndicator();
-
-                    if (response && response.message) {
-                        appendMessage(response.message, 'bot');
-
-                        // Update conversation history
-                        if (response.detected_intent) {
-                            conversationHistory.push(response.detected_intent);
-                            lastDetectedIntent = response.detected_intent;
-
-                            // Keep only last 5 intents for context
-                            if (conversationHistory.length > 5) {
-                                conversationHistory.shift();
-                            }
+                    // Show suggestions after delay
+                    setTimeout(() => {
+                        if (response.suggestions?.length) {
+                            this.showSuggestions(response.suggestions, response.detected_intent);
+                        } else {
+                            this.showFallbackSuggestions(response.detected_intent);
                         }
+                    }, this.config.typingDelay);
 
-                        // Show dynamic suggestions
-                        setTimeout(() => {
-                            if (response.suggestions && response.suggestions.length > 0) {
-                                showDynamicSuggestions(response.suggestions, response.detected_intent);
-                            } else {
-                                // Fallback to basic suggestions
-                                showBasicSuggestions(message);
-                            }
-                        }, 800);
-
-                        // Log for analytics (optional)
-                        logConversationStep(message, response.detected_intent, response.suggestions);
-                    } else {
-                        appendMessage("Maaf, saya tidak dapat memproses pesan Anda saat ini.", 'bot');
-                        showErrorSuggestions();
-                    }
-                },
-                error: function(xhr, status, error) {
-                    hideTypingIndicator();
-                    console.error('Chat Error:', error);
-
-                    let errorMessage = getErrorMessage(xhr, status);
-                    appendMessage(errorMessage, 'bot');
-
-                    // Show recovery suggestions
-                    setTimeout(() => {
-                        showRecoverySuggestions();
-                    }, 500);
-                },
-                complete: function() {
-                    sendBtn.prop('disabled', false);
-                    input.focus();
+                    // Analytics tracking
+                    this.trackInteraction(response);
+                } else {
+                    this.appendMessage("Maaf, saya tidak dapat memproses pesan Anda saat ini.", 'bot');
+                    this.showErrorSuggestions();
                 }
-            });
-        }
-
-        // Enhanced dynamic suggestions display
-        function showDynamicSuggestions(suggestions, detectedIntent) {
-            if (!suggestions || suggestions.length === 0) return;
-
-            // Sort suggestions by relevance (if backend doesn't already do this)
-            const sortedSuggestions = prioritizeSuggestions(suggestions, detectedIntent);
-
-            // Limit to 4 suggestions max
-            const limitedSuggestions = sortedSuggestions.slice(0, 4);
-
-            const quickRepliesHTML = `
-        <div class="quick-replies dynamic-suggestions" data-intent="${detectedIntent || ''}" style="animation: slideInUp 0.4s ease-out;">
-            ${limitedSuggestions.map((suggestion, index) => 
-                `<button class="quick-reply" 
-                            onclick="handleQuickReply('${escapeHtml(suggestion)}')" 
-                            title="Tanya tentang: ${escapeHtml(suggestion)}"
-                            style="animation-delay: ${index * 0.1}s">
-                            ${suggestion}
-                        </button>`
-            ).join('')}
-        </div>
-    `;
-
-            $('#chat-messages .msg-row:last-child .msg-bubble').append(quickRepliesHTML);
-            scrollToBottom();
-        }
-
-        // Prioritize suggestions based on context
-        function prioritizeSuggestions(suggestions, detectedIntent) {
-            // Create priority map based on common user flows
-            const priorityMap = {
-                'beasiswa_bi_pengertian': ['syarat', 'cara', 'daftar', 'timeline'],
-                'genbi_pengertian': ['program', 'kegiatan', 'bergabung', 'visi'],
-                'beasiswa_bi_syarat': ['dokumen', 'cara', 'tips', 'timeline'],
-                'genbi_cara_menjadi_anggota': ['syarat', 'proses', 'waktu', 'kontak']
-            };
-
-            if (!detectedIntent || !priorityMap[detectedIntent]) {
-                return suggestions;
             }
 
-            const priorities = priorityMap[detectedIntent];
+            /**
+             * Handle error response
+             */
+            handleErrorResponse(error) {
+                this.hideTypingIndicator();
+                console.error('Chat Error:', error);
 
-            return suggestions.sort((a, b) => {
-                const aScore = getPriorityScore(a, priorities);
-                const bScore = getPriorityScore(b, priorities);
-                return bScore - aScore;
-            });
-        }
-
-        function getPriorityScore(suggestion, priorities) {
-            const suggestionLower = suggestion.toLowerCase();
-            let score = 0;
-
-            priorities.forEach((priority, index) => {
-                if (suggestionLower.includes(priority)) {
-                    score += (priorities.length - index) * 10;
-                }
-            });
-
-            return score;
-        }
-
-        // Show basic suggestions as fallback
-        function showBasicSuggestions(userMessage) {
-            const message = userMessage.toLowerCase();
-            let suggestions = [];
-
-            // Keyword-based suggestions
-            if (message.includes('beasiswa')) {
-                suggestions = ['Syarat beasiswa BI', 'Cara mendaftar', 'Timeline pendaftaran', 'Tips lolos seleksi'];
-            } else if (message.includes('genbi')) {
-                suggestions = ['Apa itu GenBI', 'Program GenBI', 'Cara bergabung', 'Kegiatan GenBI'];
-            } else if (message.includes('daftar')) {
-                suggestions = ['Syarat pendaftaran', 'Link aplikasi', 'Dokumen dibutuhkan', 'Bantuan pendaftaran'];
-            } else if (message.includes('program')) {
-                suggestions = ['Program sosial', 'Program edukasi', 'Event terbaru', 'Cara ikut program'];
-            } else {
-                suggestions = ['Info GenBI', 'Info Beasiswa BI', 'FAQ umum', 'Hubungi admin'];
-            }
-
-            showDynamicSuggestions(suggestions, 'fallback');
-        }
-
-        // Show error recovery suggestions
-        function showRecoverySuggestions() {
-            const suggestions = ['Coba lagi', 'Hubungi admin', 'FAQ umum', 'Bantuan teknis'];
-            showDynamicSuggestions(suggestions, 'error_recovery');
-        }
-
-        // Show error-specific suggestions
-        function showErrorSuggestions() {
-            const suggestions = ['Ulangi pertanyaan', 'Bantuan umum', 'Kontak support', 'Menu utama'];
-            showDynamicSuggestions(suggestions, 'error');
-        }
-
-        // Enhanced welcome message with adaptive suggestions
-        function showWelcomeMessage() {
-            $('.welcome-message').fadeOut(300, function() {
-                appendMessage(
-                    "Halo! Saya GenBI Assistant. Saya dapat membantu Anda dengan informasi tentang GenBI dan beasiswa Bank Indonesia. Apa yang ingin Anda ketahui?",
-                    'bot',
-                    true
-                );
+                const errorMessage = this.getErrorMessage(error);
+                this.appendMessage(errorMessage, 'bot');
 
                 setTimeout(() => {
-                    // Show adaptive welcome suggestions
-                    showDynamicSuggestions([
-                        "Apa itu GenBI?",
-                        "Info beasiswa BI",
-                        "Cara mendaftar GenBI",
-                        "Program unggulan"
-                    ], 'welcome');
-                }, 1200);
-            });
-        }
+                    this.showRecoverySuggestions();
+                }, 500);
+            }
 
-        // Enhanced quick reply handler with analytics
-        function handleQuickReply(text) {
-            // Track suggestion click for learning
-            trackSuggestionClick(text, lastDetectedIntent);
+            /**
+             * Finalize message sending
+             */
+            finalizeSend() {
+                this.elements.sendBtn.prop('disabled', false);
+                this.elements.chatInput.focus();
+                this.resetSessionTimeout();
+            }
 
-            // Animate button click
-            const clickedButton = event.target;
-            $(clickedButton).addClass('clicked');
+            /**
+             * Update conversation state after response
+             */
+            updateConversationState(response) {
+                if (response.detected_intent) {
+                    this.state.conversationHistory.push(response.detected_intent);
+                    this.state.lastDetectedIntent = response.detected_intent;
 
-            // Set input and send
-            $('#chat-input').val(text);
-            sendChat();
-
-            // Remove suggestions with stagger animation
-            $('.quick-replies').addClass('fade-out');
-            $('.quick-reply').each(function(index) {
-                $(this).delay(index * 50).fadeOut(200);
-            });
-
-            setTimeout(() => {
-                $('.quick-replies').remove();
-            }, 500);
-        }
-
-        // Track user interactions for learning
-        function trackSuggestionClick(suggestionText, currentIntent) {
-            // Send analytics data to backend (optional)
-            $.ajax({
-                url: '/api/chatbot/track-interaction',
-                type: 'POST',
-                data: {
-                    suggestion: suggestionText,
-                    current_intent: currentIntent,
-                    session_id: sessionId,
-                    timestamp: new Date().toISOString()
-                },
-                success: function(response) {
-                    console.log('Interaction tracked:', response);
-                },
-                error: function(xhr, status, error) {
-                    // Silent fail for analytics
-                    console.log('Analytics tracking failed:', error);
+                    // Keep only recent history
+                    if (this.state.conversationHistory.length > 10) {
+                        this.state.conversationHistory = this.state.conversationHistory.slice(-5);
+                    }
                 }
-            });
-        }
-
-        // Log conversation steps for debugging and improvement
-        function logConversationStep(userMessage, detectedIntent, suggestions) {
-            const logData = {
-                timestamp: new Date().toISOString(),
-                user_message: userMessage,
-                detected_intent: detectedIntent,
-                suggestions: suggestions,
-                session_id: sessionId,
-                conversation_length: conversationHistory.length
-            };
-
-            // Store in local storage for debugging
-            const conversationLog = JSON.parse(localStorage.getItem('chatbot_conversation_log') || '[]');
-            conversationLog.push(logData);
-
-            // Keep only last 50 interactions
-            if (conversationLog.length > 50) {
-                conversationLog.shift();
             }
 
-            localStorage.setItem('chatbot_conversation_log', JSON.stringify(conversationLog));
-        }
+            /**
+             * Show welcome message
+             */
+            showWelcomeMessage() {
+                this.elements.welcomeMessage.fadeOut(300, () => {
+                    this.appendMessage(
+                        "Halo! Saya GenBI Assistant. Saya dapat membantu Anda dengan informasi tentang GenBI dan beasiswa Bank Indonesia. Apa yang ingin Anda ketahui?",
+                        'bot',
+                        true
+                    );
 
-        // Get appropriate error message
-        function getErrorMessage(xhr, status) {
-            if (status === 'timeout') {
-                return "Koneksi timeout. Jaringan Anda mungkin lambat, silakan coba lagi.";
-            } else if (xhr.status === 429) {
-                return "Terlalu banyak pesan dalam waktu singkat. Mohon tunggu sebentar sebelum mengirim pesan lagi.";
-            } else if (xhr.status === 500) {
-                return "Terjadi kesalahan pada server. Tim teknis kami sedang memperbaikinya.";
-            } else if (xhr.status === 503) {
-                return "Layanan sedang dalam pemeliharaan. Silakan coba beberapa saat lagi.";
-            } else {
-                return "Terjadi kesalahan koneksi. Periksa koneksi internet Anda dan coba lagi.";
+                    setTimeout(() => {
+                        this.showSuggestions([
+                            "Apa itu GenBI?",
+                            "Info beasiswa BI",
+                            "Cara mendaftar GenBI",
+                            "Program unggulan"
+                        ], 'welcome');
+                    }, 1200);
+                });
             }
-        }
 
-        // Smart suggestion refresh (optional feature)
-        function refreshSuggestions() {
-            if (lastDetectedIntent) {
+            /**
+             * Append message to chat
+             */
+            appendMessage(text, sender, isWelcome = false) {
+                const timestamp = new Date().toLocaleTimeString('id-ID', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                let messageHTML = '';
+
+                if (sender === 'user') {
+                    messageHTML = this.createUserMessageHTML(text, timestamp);
+                } else {
+                    messageHTML = this.createBotMessageHTML(text, timestamp);
+                }
+
+                this.elements.chatMessages.append(messageHTML);
+                this.scrollToBottom();
+            }
+
+            /**
+             * Create user message HTML
+             */
+            createUserMessageHTML(text, timestamp) {
+                return `
+            <div class="msg-row msg-user">
+                <div class="msg-bubble user">
+                    ${this.escapeHtml(text)}
+                    <div class="msg-timestamp">${timestamp}</div>
+                </div>
+                <div class="chat-avatar user">U</div>
+            </div>
+        `;
+            }
+
+            /**
+             * Create bot message HTML
+             */
+            createBotMessageHTML(text, timestamp) {
+                const logoPath = window.assetPaths?.logo || '/assets2/images/logo.png';
+                return `
+            <div class="msg-row msg-bot">
+                <img src="${logoPath}" alt="GenBI" class="chat-avatar bot">
+                <div class="msg-bubble bot">
+                    ${text}
+                    <div class="msg-timestamp">${timestamp}</div>
+                </div>
+            </div>
+        `;
+            }
+
+            /**
+             * Show typing indicator
+             */
+            showTypingIndicator() {
+                if (this.state.isTyping) return;
+
+                this.state.isTyping = true;
+                const logoPath = window.assetPaths?.logo || '/assets2/images/logo.png';
+
+                const typingHTML = `
+            <div class="msg-row msg-bot" id="typing-indicator">
+                <img src="${logoPath}" alt="GenBI" class="chat-avatar bot">
+                <div class="msg-bubble bot typing-indicator">
+                    <div class="typing-dots">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+                this.elements.chatMessages.append(typingHTML);
+                this.scrollToBottom();
+            }
+
+            /**
+             * Hide typing indicator
+             */
+            hideTypingIndicator() {
+                this.state.isTyping = false;
+                $('#typing-indicator').remove();
+            }
+
+            /**
+             * Show suggestions
+             */
+            showSuggestions(suggestions, intent = '') {
+                if (!suggestions?.length) return;
+
+                this.state.currentSuggestions = suggestions.slice(0, this.config.suggestionLimit);
+
+                const quickRepliesHTML = `
+            <div class="quick-replies dynamic-suggestions" data-intent="${intent}">
+                ${this.state.currentSuggestions.map((suggestion, index) => 
+                    `<button class="quick-reply" 
+                                        data-suggestion="${this.escapeHtml(suggestion)}"
+                                        title="Tanya tentang: ${this.escapeHtml(suggestion)}"
+                                        style="animation-delay: ${index * 0.1}s">
+                                        ${suggestion}
+                                    </button>`
+                ).join('')}
+            </div>
+        `;
+
+                this.elements.chatMessages.find('.msg-row:last-child .msg-bubble').append(quickRepliesHTML);
+                this.scrollToBottom();
+                this.startSuggestionRefreshTimer();
+            }
+
+            /**
+             * Show fallback suggestions
+             */
+            showFallbackSuggestions(intent) {
+                const fallbackSuggestions = this.getFallbackSuggestions(intent);
+                this.showSuggestions(fallbackSuggestions, 'fallback');
+            }
+
+            /**
+             * Show error recovery suggestions
+             */
+            showRecoverySuggestions() {
+                const suggestions = ['Coba lagi', 'Hubungi admin', 'FAQ umum', 'Bantuan teknis'];
+                this.showSuggestions(suggestions, 'error_recovery');
+            }
+
+            /**
+             * Show error-specific suggestions
+             */
+            showErrorSuggestions() {
+                const suggestions = ['Ulangi pertanyaan', 'Bantuan umum', 'Kontak support', 'Menu utama'];
+                this.showSuggestions(suggestions, 'error');
+            }
+
+            /**
+             * Get fallback suggestions based on intent
+             */
+            getFallbackSuggestions(intent) {
+                const fallbackMap = {
+                    'beasiswa': ['Syarat beasiswa BI', 'Cara mendaftar', 'Timeline pendaftaran',
+                        'Tips lolos seleksi'
+                    ],
+                    'genbi': ['Apa itu GenBI', 'Program GenBI', 'Cara bergabung', 'Kegiatan GenBI'],
+                    'daftar': ['Syarat pendaftaran', 'Link aplikasi', 'Dokumen dibutuhkan', 'Bantuan pendaftaran'],
+                    'program': ['Program sosial', 'Program edukasi', 'Event terbaru', 'Cara ikut program']
+                };
+
+                // Find matching intent
+                for (const [key, suggestions] of Object.entries(fallbackMap)) {
+                    if (intent?.toLowerCase().includes(key)) {
+                        return suggestions;
+                    }
+                }
+
+                return ['Info GenBI', 'Info Beasiswa BI', 'FAQ umum', 'Hubungi admin'];
+            }
+
+            /**
+             * Handle quick reply click
+             */
+            handleQuickReply(text) {
+                // Visual feedback
+                const clickedButton = event.target;
+                $(clickedButton).addClass('clicked');
+
+                // Track click
+                this.trackSuggestionClick(text);
+
+                // Set input and send
+                this.elements.chatInput.val(text);
+                this.sendMessage();
+
+                // Remove suggestions with animation
+                this.removeSuggestions();
+            }
+
+            /**
+             * Remove suggestions with animation
+             */
+            removeSuggestions() {
+                const $suggestions = $('.quick-replies');
+                $suggestions.addClass('fade-out');
+
+                $('.quick-reply').each((index, element) => {
+                    $(element).delay(index * 50).fadeOut(200);
+                });
+
+                setTimeout(() => {
+                    $suggestions.remove();
+                }, 500);
+            }
+
+            /**
+             * Session timeout management
+             */
+            initializeSessionTimeout() {
+                this.resetSessionTimeout();
+            }
+
+            resetSessionTimeout() {
+                if (this.timers.sessionTimeout) {
+                    clearTimeout(this.timers.sessionTimeout);
+                }
+
+                this.timers.sessionTimeout = setTimeout(() => {
+                    this.handleSessionTimeout();
+                }, this.config.sessionTimeout);
+            }
+
+            startSessionTimeout() {
+                // Implement if needed for different timeout behavior when window is not focused
+            }
+
+            handleSessionTimeout() {
+                // Clear conversation history on timeout
+                this.state.conversationHistory = [];
+                this.state.lastDetectedIntent = null;
+
+                if (this.state.isVisible) {
+                    this.appendMessage("Sesi chat telah berakhir karena tidak aktif. Silakan mulai percakapan baru.",
+                        'bot');
+                }
+            }
+
+            /**
+             * Suggestion refresh timer
+             */
+            startSuggestionRefreshTimer() {
+                if (this.timers.suggestionRefresh) {
+                    clearTimeout(this.timers.suggestionRefresh);
+                }
+
+                this.timers.suggestionRefresh = setTimeout(() => {
+                    if ($('.quick-replies').length > 0 && !this.state.isTyping) {
+                        this.refreshSuggestions();
+                    }
+                }, this.config.refreshSuggestionsDelay);
+            }
+
+            /**
+             * Refresh suggestions
+             */
+            async refreshSuggestions() {
+                if (!this.state.lastDetectedIntent) return;
+
+                try {
+                    const response = await $.ajax({
+                        url: '/api/chatbot/get-fresh-suggestions',
+                        type: 'POST',
+                        data: {
+                            intent: this.state.lastDetectedIntent,
+                            conversation_history: this.state.conversationHistory,
+                            session_id: this.state.sessionId
+                        }
+                    });
+
+                    if (response.suggestions) {
+                        $('.quick-replies').fadeOut(200, () => {
+                            $('.quick-replies').remove();
+                            this.showSuggestions(response.suggestions, this.state.lastDetectedIntent);
+                        });
+                    }
+                } catch (error) {
+                    console.log('Failed to refresh suggestions:', error);
+                }
+            }
+
+            /**
+             * Analytics and tracking
+             */
+            trackInteraction(response) {
+                const logData = {
+                    timestamp: new Date().toISOString(),
+                    user_message: response.user_message || '',
+                    detected_intent: response.detected_intent,
+                    suggestions: response.suggestions,
+                    session_id: this.state.sessionId,
+                    conversation_length: this.state.conversationHistory.length
+                };
+
+                this.saveToLocalStorage('chatbot_conversation_log', logData);
+            }
+
+            trackSuggestionClick(suggestionText) {
                 $.ajax({
-                    url: '/api/chatbot/get-fresh-suggestions',
+                    url: '/api/chatbot/track-interaction',
                     type: 'POST',
                     data: {
-                        intent: lastDetectedIntent,
-                        conversation_history: conversationHistory,
-                        session_id: sessionId
+                        suggestion: suggestionText,
+                        current_intent: this.state.lastDetectedIntent,
+                        session_id: this.state.sessionId,
+                        timestamp: new Date().toISOString()
                     },
-                    success: function(response) {
-                        if (response.suggestions) {
-                            // Replace current suggestions
-                            $('.quick-replies').fadeOut(200, function() {
-                                $(this).remove();
-                                showDynamicSuggestions(response.suggestions, lastDetectedIntent);
+                    success: (response) => {
+                        console.log('Interaction tracked:', response);
+                    },
+                    error: (error) => {
+                        console.log('Analytics tracking failed:', error);
+                    }
+                });
+            }
+
+            /**
+             * Utility functions
+             */
+            escapeHtml(text) {
+                const map = {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                };
+                return text.replace(/[&<>"']/g, (m) => map[m]);
+            }
+
+            scrollToBottom() {
+                this.elements.chatMessages.animate({
+                    scrollTop: this.elements.chatMessages[0].scrollHeight
+                }, 300);
+            }
+
+            delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            shouldRetry(error) {
+                const retryableStatuses = [0, 408, 429, 500, 502, 503, 504];
+                return retryableStatuses.includes(error.status) || error.statusText === 'timeout';
+            }
+
+            getErrorMessage(error) {
+                const errorMessages = {
+                    'timeout': "Koneksi timeout. Jaringan Anda mungkin lambat, silakan coba lagi.",
+                    429: "Terlalu banyak pesan dalam waktu singkat. Mohon tunggu sebentar sebelum mengirim pesan lagi.",
+                    500: "Terjadi kesalahan pada server. Tim teknis kami sedang memperbaikinya.",
+                    503: "Layanan sedang dalam pemeliharaan. Silakan coba beberapa saat lagi."
+                };
+
+                return errorMessages[error.statusText] ||
+                    errorMessages[error.status] ||
+                    "Terjadi kesalahan koneksi. Periksa koneksi internet Anda dan coba lagi.";
+            }
+
+            saveToLocalStorage(key, data) {
+                try {
+                    const existingData = JSON.parse(localStorage.getItem(key) || '[]');
+                    existingData.push(data);
+
+                    // Keep only last 50 items
+                    if (existingData.length > 50) {
+                        existingData.shift();
+                    }
+
+                    localStorage.setItem(key, JSON.stringify(existingData));
+                } catch (error) {
+                    console.warn('Failed to save to localStorage:', error);
+                }
+            }
+
+            showToast(message, type = 'info') {
+                // Simple toast implementation
+                const toast = $(`
+            <div class="chatbot-toast chatbot-toast-${type}">
+                ${message}
+            </div>
+        `).appendTo('body');
+
+                setTimeout(() => {
+                    toast.fadeOut(() => toast.remove());
+                }, 3000);
+            }
+
+            /**
+             * Cleanup method
+             */
+            destroy() {
+                // Clear all timers
+                Object.values(this.timers).forEach(timer => {
+                    if (timer) clearTimeout(timer);
+                });
+
+                // Remove event listeners
+                this.elements.chatFloat.off();
+                this.elements.sendBtn.off();
+                this.elements.chatInput.off();
+                $(document).off('click', '.quick-reply');
+                $(document).off('keydown');
+                $(window).off('focus blur');
+
+                // Clear references
+                this.elements = {};
+                this.state = {};
+                this.timers = {};
+            }
+        }
+
+        // Additional Utility Classes and Functions
+
+        /**
+         * Page initialization and other features
+         */
+        class PageManager {
+            constructor() {
+                this.init();
+            }
+
+            init() {
+                this.initializeLibraries();
+                this.setupUIFeatures();
+                this.setupFormValidation();
+                this.setupImageHandling();
+                this.setupScrollFeatures();
+                this.setupThemeToggle();
+            }
+
+            initializeLibraries() {
+                // Initialize AOS
+                if (typeof AOS !== 'undefined') {
+                    AOS.init({
+                        duration: 1000,
+                        once: true,
+                        offset: 100
+                    });
+                }
+
+                // Initialize WOW
+                if (typeof WOW !== 'undefined') {
+                    new WOW().init();
+                }
+
+                // Initialize Typed.js
+                this.initializeTypedJS();
+
+                // Initialize Magnific Popup
+                this.initializeMagnificPopup();
+            }
+
+            initializeTypedJS() {
+                const typedElements = $('.typed-text-output');
+                if (typedElements.length && typeof Typed !== 'undefined') {
+                    typedElements.each(function() {
+                        const typedStrings = $(this).siblings('.typed-text').text();
+                        if (typedStrings) {
+                            new Typed(this, {
+                                strings: typedStrings.split(','),
+                                typeSpeed: 100,
+                                backSpeed: 20,
+                                smartBackspace: false,
+                                loop: true
                             });
                         }
-                    },
-                    error: function() {
-                        console.log('Failed to refresh suggestions');
+                    });
+                }
+            }
+
+            initializeMagnificPopup() {
+                if (typeof $.fn.magnificPopup !== 'undefined') {
+                    $('.popup-image').magnificPopup({
+                        type: 'image',
+                        closeOnContentClick: true,
+                        mainClass: 'mfp-img-mobile',
+                        image: {
+                            verticalFit: true
+                        }
+                    });
+
+                    $('.popup-video').magnificPopup({
+                        type: 'iframe',
+                        mainClass: 'mfp-fade',
+                        removalDelay: 160,
+                        preloader: false,
+                        fixedContentPos: false
+                    });
+                }
+            }
+
+            setupUIFeatures() {
+                // Smooth scrolling
+                this.setupSmoothScrolling();
+
+                // Back to top button
+                this.setupBackToTop();
+
+                // Mobile navigation
+                this.setupMobileNavigation();
+
+                // Bootstrap components
+                this.initializeBootstrapComponents();
+            }
+
+            setupSmoothScrolling() {
+                $('a[href*="#"]').not('[href="#"]').not('[href="#0"]').on('click', function(event) {
+                    if (location.pathname.replace(/^\//, '') === this.pathname.replace(/^\//, '') &&
+                        location.hostname === this.hostname) {
+
+                        let target = $(this.hash);
+                        target = target.length ? target : $('[name=' + this.hash.slice(1) + ']');
+
+                        if (target.length) {
+                            event.preventDefault();
+                            $('html, body').animate({
+                                scrollTop: target.offset().top - 100
+                            }, 1000, 'easeInOutExpo');
+                        }
                     }
+                });
+            }
+
+            setupBackToTop() {
+                const backToTopButton = $('<div class="back-to-top"><i class="lni lni-chevron-up"></i></div>');
+                $('body').append(backToTopButton);
+
+                $(window).on('scroll', function() {
+                    if ($(this).scrollTop() > 300) {
+                        backToTopButton.fadeIn('slow');
+                    } else {
+                        backToTopButton.fadeOut('slow');
+                    }
+                });
+
+                backToTopButton.on('click', function() {
+                    $('html, body').animate({
+                        scrollTop: 0
+                    }, 1500, 'easeInOutExpo');
+                    return false;
+                });
+            }
+
+            setupMobileNavigation() {
+                $('.navbar-toggler').on('click', function() {
+                    $('.navbar-collapse').slideToggle(300);
+                });
+
+                $('.navbar-nav a').on('click', function() {
+                    if ($('.navbar-toggler').is(':visible')) {
+                        $('.navbar-collapse').slideUp(300);
+                    }
+                });
+
+                $('.dropdown-menu').on('click', function(e) {
+                    e.stopPropagation();
+                });
+            }
+
+            initializeBootstrapComponents() {
+                // Initialize tooltips
+                if (typeof $.fn.tooltip !== 'undefined') {
+                    $('[data-bs-toggle="tooltip"]').tooltip();
+                }
+
+                // Initialize popovers
+                if (typeof $.fn.popover !== 'undefined') {
+                    $('[data-bs-toggle="popover"]').popover();
+                }
+
+                // Video modal handling
+                $('.video-btn').on('click', function() {
+                    const videoSrc = $(this).data('src');
+                    $('#videoModal iframe').attr('src', videoSrc + '?autoplay=1');
+                });
+
+                $('#videoModal').on('hidden.bs.modal', function() {
+                    $('#videoModal iframe').attr('src', '');
+                });
+            }
+
+            setupFormValidation() {
+                // Form validation
+                $('form.needs-validation').on('submit', function(e) {
+                    e.preventDefault();
+                    if (this.validateForm(this.id)) {
+                        this.submit();
+                    }
+                });
+
+                // Remove validation classes on input
+                $('input, textarea, select').on('input change', function() {
+                    if (this.value.trim()) {
+                        $(this).removeClass('is-invalid');
+                    }
+                });
+            }
+
+            validateForm(formId) {
+                const form = document.getElementById(formId);
+                if (!form) return false;
+
+                let isValid = true;
+                const inputs = form.querySelectorAll('input[required], textarea[required], select[required]');
+
+                inputs.forEach(input => {
+                    if (!input.value.trim()) {
+                        input.classList.add('is-invalid');
+                        isValid = false;
+                    } else {
+                        input.classList.remove('is-invalid');
+                    }
+                });
+
+                return isValid;
+            }
+
+            setupImageHandling() {
+                // Lazy loading fallback
+                if (!('loading' in HTMLImageElement.prototype)) {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/lazysizes/5.3.2/lazysizes.min.js';
+                    script.async = true;
+                    document.body.appendChild(script);
+                } else {
+                    const images = document.querySelectorAll('img[loading="lazy"]');
+                    images.forEach(img => {
+                        if (img.dataset.src) {
+                            img.src = img.dataset.src;
+                        }
+                    });
+                }
+            }
+
+            setupScrollFeatures() {
+                // Counter animation
+                let counterAnimated = false;
+                $(window).on('scroll', function() {
+                    const counterElements = $('.counter');
+                    if (counterElements.length && !counterAnimated) {
+                        const counterOffset = counterElements.first().offset();
+                        if (counterOffset && $(window).scrollTop() > counterOffset.top - 500) {
+                            counterAnimated = true;
+                            counterElements.each(function() {
+                                const $this = $(this);
+                                const targetValue = parseInt($this.text());
+
+                                $this.prop('Counter', 0).animate({
+                                    Counter: targetValue
+                                }, {
+                                    duration: 2000,
+                                    easing: 'swing',
+                                    step: function(now) {
+                                        $this.text(Math.ceil(now));
+                                    }
+                                });
+                            });
+                        }
+                    }
+                });
+            }
+
+            setupThemeToggle() {
+                const themeToggle = $('#theme-toggle');
+
+                if (themeToggle.length) {
+                    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    const storedTheme = localStorage.getItem('theme');
+                    let currentTheme = storedTheme || (prefersDark ? 'dark' : 'light');
+
+                    this.setTheme(currentTheme);
+
+                    themeToggle.on('click', () => {
+                        currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                        this.setTheme(currentTheme);
+                        localStorage.setItem('theme', currentTheme);
+                    });
+                }
+            }
+
+            setTheme(theme) {
+                document.documentElement.setAttribute('data-bs-theme', theme);
+                const themeToggle = $('#theme-toggle');
+                if (themeToggle.length) {
+                    themeToggle.find('i').toggleClass('fa-sun fa-moon', theme === 'dark');
+                }
+            }
+        }
+
+        /**
+         * Cookie Consent Manager
+         */
+        class CookieManager {
+            constructor() {
+                this.init();
+            }
+
+            init() {
+                this.checkCookieConsent();
+                this.setupCookieHandlers();
+            }
+
+            checkCookieConsent() {
+                if (!localStorage.getItem('cookieConsent')) {
+                    this.showCookieBanner();
+                }
+            }
+
+            showCookieBanner() {
+                const banner = $('#cookie-consent');
+                if (banner.length) {
+                    banner.removeClass('d-none').fadeIn();
+                }
+            }
+
+            setupCookieHandlers() {
+                $(document).on('click', '#accept-cookies', () => {
+                    this.acceptCookies();
+                });
+
+                $(document).on('click', '#decline-cookies', () => {
+                    this.declineCookies();
+                });
+            }
+
+            acceptCookies() {
+                localStorage.setItem('cookieConsent', 'accepted');
+                $('#cookie-consent').fadeOut();
+                this.enableAnalytics();
+            }
+
+            declineCookies() {
+                localStorage.setItem('cookieConsent', 'declined');
+                $('#cookie-consent').fadeOut();
+            }
+
+            enableAnalytics() {
+                // Enable Google Analytics or other tracking scripts
+                if (typeof gtag !== 'undefined') {
+                    gtag('consent', 'update', {
+                        'analytics_storage': 'granted'
+                    });
+                }
+            }
+        }
+
+        /**
+         * Performance Monitor
+         */
+        class PerformanceMonitor {
+            constructor() {
+                this.metrics = {};
+                this.init();
+            }
+
+            init() {
+                this.measurePageLoad();
+                this.setupErrorTracking();
+                this.monitorChatPerformance();
+            }
+
+            measurePageLoad() {
+                window.addEventListener('load', () => {
+                    if ('performance' in window) {
+                        const navigation = performance.getEntriesByType('navigation')[0];
+                        this.metrics.pageLoad = {
+                            domContentLoaded: navigation.domContentLoadedEventEnd - navigation
+                                .domContentLoadedEventStart,
+                            loadComplete: navigation.loadEventEnd - navigation.loadEventStart,
+                            totalTime: navigation.loadEventEnd - navigation.fetchStart
+                        };
+
+                        this.logMetrics('pageLoad', this.metrics.pageLoad);
+                    }
+                });
+            }
+
+            setupErrorTracking() {
+                window.addEventListener('error', (e) => {
+                    this.logError('JavaScript Error', {
+                        message: e.message,
+                        filename: e.filename,
+                        lineno: e.lineno,
+                        colno: e.colno,
+                        stack: e.error?.stack
+                    });
+                });
+
+                window.addEventListener('unhandledrejection', (e) => {
+                    this.logError('Unhandled Promise Rejection', {
+                        reason: e.reason,
+                        promise: e.promise
+                    });
+                });
+            }
+
+            monitorChatPerformance() {
+                // Monitor chat response times
+                const originalSendMessage = GenBIChatbot.prototype.sendToServer;
+                GenBIChatbot.prototype.sendToServer = async function(...args) {
+                    const startTime = performance.now();
+                    try {
+                        const result = await originalSendMessage.apply(this, args);
+                        const endTime = performance.now();
+
+                        window.performanceMonitor?.logMetrics('chatResponse', {
+                            responseTime: endTime - startTime,
+                            success: true
+                        });
+
+                        return result;
+                    } catch (error) {
+                        const endTime = performance.now();
+
+                        window.performanceMonitor?.logMetrics('chatResponse', {
+                            responseTime: endTime - startTime,
+                            success: false,
+                            error: error.message
+                        });
+
+                        throw error;
+                    }
+                };
+            }
+
+            logMetrics(type, data) {
+                if (window.location.search.includes('debug=1')) {
+                    console.log(`Performance [${type}]:`, data);
+                }
+
+                // Send to analytics service if available
+                if (typeof gtag !== 'undefined') {
+                    gtag('event', 'performance_metric', {
+                        'metric_type': type,
+                        'metric_data': JSON.stringify(data)
+                    });
+                }
+            }
+
+            logError(type, error) {
+                console.error(`${type}:`, error);
+
+                // Send to error tracking service
+                if (typeof gtag !== 'undefined') {
+                    gtag('event', 'exception', {
+                        'description': `${type}: ${error.message || error.reason}`,
+                        'fatal': false
+                    });
+                }
+            }
+        }
+
+        /**
+         * Accessibility Enhancer
+         */
+        class AccessibilityEnhancer {
+            constructor() {
+                this.init();
+            }
+
+            init() {
+                this.setupKeyboardNavigation();
+                this.setupScreenReaderSupport();
+                this.setupFocusManagement();
+                this.setupHighContrast();
+            }
+
+            setupKeyboardNavigation() {
+                // Escape key to close chat
+                $(document).on('keydown', (e) => {
+                    if (e.key === 'Escape' && window.genbiChatbot?.state.isVisible) {
+                        window.genbiChatbot.hideChat();
+                    }
+                });
+
+                // Tab navigation for chat elements
+                $('.chat-window').on('keydown', (e) => {
+                    if (e.key === 'Tab') {
+                        this.handleTabNavigation(e);
+                    }
+                });
+            }
+
+            handleTabNavigation(e) {
+                const focusableElements = $(e.currentTarget).find(
+                    'button, input, [tabindex]:not([tabindex="-1"])'
+                );
+
+                const firstElement = focusableElements.first();
+                const lastElement = focusableElements.last();
+
+                if (e.shiftKey && $(document.activeElement).is(firstElement)) {
+                    e.preventDefault();
+                    lastElement.focus();
+                } else if (!e.shiftKey && $(document.activeElement).is(lastElement)) {
+                    e.preventDefault();
+                    firstElement.focus();
+                }
+            }
+
+            setupScreenReaderSupport() {
+                // Add ARIA labels and roles
+                $('#chat-float').attr({
+                    'role': 'button',
+                    'aria-label': 'Buka chat dengan GenBI Assistant',
+                    'aria-expanded': 'false'
+                });
+
+                $('#chat-messages').attr({
+                    'role': 'log',
+                    'aria-live': 'polite',
+                    'aria-label': 'Riwayat percakapan chat'
+                });
+
+                $('#chat-input').attr({
+                    'role': 'textbox',
+                    'aria-label': 'Ketik pesan Anda di sini'
+                });
+
+                // Announce new messages to screen readers
+                this.setupMessageAnnouncements();
+            }
+
+            setupMessageAnnouncements() {
+                const observer = new MutationObserver((mutations) => {
+                    mutations.forEach((mutation) => {
+                        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                            mutation.addedNodes.forEach((node) => {
+                                if ($(node).hasClass('msg-row') && $(node).hasClass(
+                                        'msg-bot')) {
+                                    const messageText = $(node).find('.msg-bubble').text();
+                                    this.announceToScreenReader(`Bot berkata: ${messageText}`);
+                                }
+                            });
+                        }
+                    });
+                });
+
+                const chatMessages = document.getElementById('chat-messages');
+                if (chatMessages) {
+                    observer.observe(chatMessages, {
+                        childList: true
+                    });
+                }
+            }
+
+            announceToScreenReader(message) {
+                const announcement = $('<div>')
+                    .addClass('sr-only')
+                    .attr('aria-live', 'assertive')
+                    .text(message);
+
+                $('body').append(announcement);
+                setTimeout(() => announcement.remove(), 1000);
+            }
+
+            setupFocusManagement() {
+                // Focus management for modal-like chat window
+                $(document).on('chatOpened', () => {
+                    $('#chat-input').focus();
+                    $('#chat-float').attr('aria-expanded', 'true');
+                });
+
+                $(document).on('chatClosed', () => {
+                    $('#chat-float').focus().attr('aria-expanded', 'false');
+                });
+            }
+
+            setupHighContrast() {
+                // Detect high contrast preference
+                if (window.matchMedia('(prefers-contrast: high)').matches) {
+                    $('body').addClass('high-contrast');
+                }
+
+                // Listen for changes
+                window.matchMedia('(prefers-contrast: high)').addEventListener('change', (e) => {
+                    $('body').toggleClass('high-contrast', e.matches);
                 });
             }
         }
 
-        // Auto-refresh suggestions every 30 seconds if user is idle
-        let suggestionRefreshTimer;
+        /**
+         * SEO and Analytics Helper
+         */
+        class SEOAnalyticsHelper {
+            constructor() {
+                this.init();
+            }
 
-        function startSuggestionRefreshTimer() {
-            clearTimeout(suggestionRefreshTimer);
-            suggestionRefreshTimer = setTimeout(() => {
-                if ($('.quick-replies').length > 0 && !isTyping) {
-                    refreshSuggestions();
+            init() {
+                this.trackPageViews();
+                this.trackUserInteractions();
+                this.trackChatUsage();
+                this.setupStructuredData();
+            }
+
+            trackPageViews() {
+                if (typeof gtag !== 'undefined') {
+                    gtag('config', 'GA_MEASUREMENT_ID', {
+                        page_title: document.title,
+                        page_location: window.location.href
+                    });
                 }
-            }, 30000);
+            }
+
+            trackUserInteractions() {
+                // Track important user interactions
+                $('a[href^="mailto:"], a[href^="tel:"]').on('click', function() {
+                    const linkType = this.href.startsWith('mailto:') ? 'email' : 'phone';
+                    if (typeof gtag !== 'undefined') {
+                        gtag('event', 'contact_interaction', {
+                            'method': linkType,
+                            'contact_info': this.href
+                        });
+                    }
+                });
+
+                // Track form submissions
+                $('form').on('submit', function() {
+                    const formId = this.id || 'unknown';
+                    if (typeof gtag !== 'undefined') {
+                        gtag('event', 'form_submit', {
+                            'form_id': formId
+                        });
+                    }
+                });
+            }
+
+            trackChatUsage() {
+                // Track chat interactions
+                $(document).on('chatOpened', () => {
+                    if (typeof gtag !== 'undefined') {
+                        gtag('event', 'chat_opened');
+                    }
+                });
+
+                $(document).on('messagesSent', (e, data) => {
+                    if (typeof gtag !== 'undefined') {
+                        gtag('event', 'chat_message_sent', {
+                            'session_id': data.sessionId,
+                            'message_count': data.messageCount
+                        });
+                    }
+                });
+            }
+
+            setupStructuredData() {
+                // Add FAQ structured data if FAQ content exists
+                const faqElements = $('.faq-item');
+                if (faqElements.length > 0) {
+                    const faqData = {
+                        "@context": "https://schema.org",
+                        "@type": "FAQPage",
+                        "mainEntity": []
+                    };
+
+                    faqElements.each(function() {
+                        const question = $(this).find('.faq-question').text().trim();
+                        const answer = $(this).find('.faq-answer').text().trim();
+
+                        if (question && answer) {
+                            faqData.mainEntity.push({
+                                "@type": "Question",
+                                "name": question,
+                                "acceptedAnswer": {
+                                    "@type": "Answer",
+                                    "text": answer
+                                }
+                            });
+                        }
+                    });
+
+                    if (faqData.mainEntity.length > 0) {
+                        const script = document.createElement('script');
+                        script.type = 'application/ld+json';
+                        script.textContent = JSON.stringify(faqData);
+                        document.head.appendChild(script);
+                    }
+                }
+            }
         }
 
-        // Enhanced CSS animations
-        const enhancedCSS = `
+        /**
+         * Global initialization and cleanup
+         */
+        $(document).ready(function() {
+            try {
+                // Initialize all components
+                window.genbiChatbot = new GenBIChatbot();
+                window.pageManager = new PageManager();
+                window.cookieManager = new CookieManager();
+                window.performanceMonitor = new PerformanceMonitor();
+                window.accessibilityEnhancer = new AccessibilityEnhancer();
+                window.seoAnalyticsHelper = new SEOAnalyticsHelper();
+
+                // Global event triggers for chatbot
+                window.toggleChat = () => window.genbiChatbot?.toggleChat();
+                window.sendChat = () => window.genbiChatbot?.sendMessage();
+                window.handleQuickReply = (text) => window.genbiChatbot?.handleQuickReply(text);
+
+                console.log('GenBI Chatbot initialized successfully');
+
+            } catch (error) {
+                console.error('Error initializing GenBI components:', error);
+
+                // Fallback basic functionality
+                $('#chat-float').on('click', function() {
+                    alert('Chat sedang dalam perbaikan. Silakan hubungi admin melalui email atau telepon.');
+                });
+            }
+        });
+
+        // Cleanup on page unload
+        $(window).on('beforeunload', function() {
+            try {
+                // Cleanup all components
+                window.genbiChatbot?.destroy();
+                window.performanceMonitor = null;
+                window.pageManager = null;
+                window.cookieManager = null;
+                window.accessibilityEnhancer = null;
+                window.seoAnalyticsHelper = null;
+
+                // Clear any remaining timers
+                const highestTimeoutId = setTimeout(() => {}, 0);
+                for (let i = 0; i < highestTimeoutId; i++) {
+                    clearTimeout(i);
+                }
+
+            } catch (error) {
+                console.warn('Error during cleanup:', error);
+            }
+        });
+
+        // Export for use in other scripts if needed
+        if (typeof module !== 'undefined' && module.exports) {
+            module.exports = {
+                GenBIChatbot,
+                PageManager,
+                CookieManager,
+                PerformanceMonitor,
+                AccessibilityEnhancer,
+                SEOAnalyticsHelper
+            };
+        }
+
+        // Enhanced CSS styles to support the refactored JavaScript
+        const enhancedStyles = `
 <style>
-.dynamic-suggestions {
-    margin-top: 15px;
+/* Message timestamp styles */
+.msg-timestamp {
+    font-size: 11px;
+    opacity: 0.7;
+    margin-top: 4px;
 }
 
-.quick-reply {
-    animation: bounceIn 0.4s ease-out;
-    animation-fill-mode: both;
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.quick-reply:hover {
-    transform: translateY(-2px) scale(1.02);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-}
-
-.quick-reply.clicked {
-    transform: scale(0.95);
-    background: var(--chatbot-primary);
+/* Toast notification styles */
+.chatbot-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    border-radius: 8px;
     color: white;
+    font-weight: 500;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideInDown 0.3s ease-out;
 }
 
-.quick-replies.fade-out {
-    opacity: 0;
-    transform: translateY(-10px);
-    transition: all 0.3s ease-out;
-}
+.chatbot-toast-info { background: var(--chatbot-info); }
+.chatbot-toast-success { background: var(--chatbot-success); }
+.chatbot-toast-warning { background: var(--chatbot-warning); color: #000; }
+.chatbot-toast-error { background: var(--chatbot-danger); }
 
-@keyframes bounceIn {
-    0% {
-        opacity: 0;
-        transform: scale(0.3) translateY(20px);
-    }
-    50% {
-        opacity: 1;
-        transform: scale(1.05) translateY(-5px);
-    }
-    70% {
-        transform: scale(0.95) translateY(2px);
-    }
-    100% {
-        opacity: 1;
-        transform: scale(1) translateY(0);
-    }
-}
-
-@keyframes slideInUp {
+@keyframes slideInDown {
     from {
         opacity: 0;
-        transform: translateY(20px);
+        transform: translateY(-30px);
     }
     to {
         opacity: 1;
@@ -1518,73 +2147,182 @@
     }
 }
 
-/* Loading states for suggestions */
-.quick-reply.loading {
-    opacity: 0.6;
-    pointer-events: none;
+/* Back to top button */
+.back-to-top {
+    position: fixed;
+    bottom: 120px;
+    right: 30px;
+    width: 50px;
+    height: 50px;
+    background: var(--chatbot-gradient);
+    color: white;
+    border-radius: 50%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transition: all 0.3s ease;
+    z-index: 9997;
 }
 
-.quick-reply.loading::after {
-    content: '';
+.back-to-top:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+}
+
+/* High contrast mode */
+.high-contrast {
+    filter: contrast(150%);
+}
+
+.high-contrast .chat-header {
+    background: #000 !important;
+    color: #fff !important;
+}
+
+.high-contrast .msg-bubble.bot {
+    background: #fff !important;
+    color: #000 !important;
+    border: 2px solid #000 !important;
+}
+
+.high-contrast .msg-bubble.user {
+    background: #000 !important;
+    color: #fff !important;
+    border: 2px solid #fff !important;
+}
+
+/* Screen reader only content */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
+/* Cookie consent banner */
+#cookie-consent {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 20px;
+    z-index: 10000;
+    text-align: center;
+}
+
+#cookie-consent button {
+    margin: 0 5px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+#accept-cookies {
+    background: var(--chatbot-success);
+    color: white;
+}
+
+#decline-cookies {
+    background: var(--chatbot-secondary);
+    color: white;
+}
+
+/* Enhanced quick reply animations */
+.quick-reply {
+    position: relative;
+    overflow: hidden;
+}
+
+.quick-reply:focus {
+    outline: 2px solid var(--chatbot-primary);
+    outline-offset: 2px;
+}
+
+.quick-reply:active {
+    transform: scale(0.98);
+}
+
+/* Loading states */
+.loading-overlay {
     position: absolute;
     top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-    animation: shimmer 1.5s infinite;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
 }
 
-@keyframes shimmer {
-    0% { left: -100%; }
-    100% { left: 100%; }
+.loading-dots {
+    display: flex;
+    gap: 4px;
 }
 
-/* Smart suggestion indicators */
-.quick-reply[data-category]::before {
-    content: '';
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 6px;
-    height: 6px;
+.loading-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--chatbot-primary);
     border-radius: 50%;
-    background: var(--chatbot-success);
+    animation: loading-bounce 1.4s ease-in-out infinite both;
 }
 
-.quick-reply[data-category="priority"]::before {
-    background: var(--chatbot-warning);
+.loading-dot:nth-child(1) { animation-delay: -0.32s; }
+.loading-dot:nth-child(2) { animation-delay: -0.16s; }
+.loading-dot:nth-child(3) { animation-delay: 0s; }
+
+@keyframes loading-bounce {
+    0%, 80%, 100% {
+        transform: scale(0);
+    }
+    40% {
+        transform: scale(1);
+    }
 }
 
-.quick-reply[data-category="related"]::before {
-    background: var(--chatbot-info);
+/* Responsive improvements */
+@media (max-width: 768px) {
+    .back-to-top {
+        bottom: 100px;
+        right: 20px;
+        width: 45px;
+        height: 45px;
+    }
+    
+    .chatbot-toast {
+        right: 10px;
+        left: 10px;
+        text-align: center;
+    }
+}
+
+/* Print styles */
+@media print {
+    #chat-float,
+    #chat-window,
+    .back-to-top,
+    #cookie-consent {
+        display: none !important;
+    }
 }
 </style>
 `;
 
-        // Inject enhanced CSS
-        $('head').append(enhancedCSS);
-
-        // Initialize conversation tracking
-        $(document).ready(function() {
-            // Reset conversation history on page load
-            conversationHistory = [];
-
-            // Start suggestion refresh timer
-            $(document).on('click', '.quick-reply', function() {
-                startSuggestionRefreshTimer();
-            });
-
-            // Clear conversation log button (for debugging)
-            if (window.location.search.includes('debug=1')) {
-                $('body').append(`
-            <button onclick="localStorage.removeItem('chatbot_conversation_log'); alert('Conversation log cleared!')" 
-                    style="position: fixed; top: 10px; right: 10px; z-index: 10001; padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 4px; font-size: 12px;">
-                Clear Log
-            </button>
-        `);
-            }
-        });
+        // Inject enhanced styles
+        if (typeof document !== 'undefined') {
+            document.head.insertAdjacentHTML('beforeend', enhancedStyles);
+        }
     </script>
 </body>
 
