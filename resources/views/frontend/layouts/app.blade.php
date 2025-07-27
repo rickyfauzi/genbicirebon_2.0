@@ -576,9 +576,9 @@
 </head>
 
 <body>
-    <div class="loading-spinner" id="loading-spinner">
+    {{-- <div class="loading-spinner" id="loading-spinner">
         <div class="spinner"></div>
-    </div>
+    </div> --}}
 
     @include('frontend.template.header')
 
