@@ -53,13 +53,13 @@ jobs:
             **/public/**
             **/config/**
             **/test/**
-            **/bootstrap/**
+
             **/lang/**
-            **/app/console/**
+
             **/app/exceptions/**
             **/app/http/middleware/**
             **/app/http/requests/**
-            **/app/http/kernel.php
+
             **/app/notifications/**
             **/app/policies/**
             **/app/view/**

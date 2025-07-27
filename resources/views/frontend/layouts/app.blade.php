@@ -1127,6 +1127,464 @@
         if ($('#theme-toggle').length) {
             initTheme();
         }
+
+
+        // Enhanced Chat variables for dynamic suggestions
+        let isTyping = false;
+        let chatInitialized = false;
+        let conversationHistory = [];
+        let lastDetectedIntent = null;
+        const sessionId = 'genbi-' + Math.random().toString(36).substring(2, 15);
+
+        // Enhanced sendChat function with conversation tracking
+        function sendChat() {
+            const input = $('#chat-input');
+            const message = input.val().trim();
+            const sendBtn = $('#send-btn');
+
+            if (!message || isTyping) return;
+
+            // Clear input and disable send button
+            input.val('');
+            sendBtn.prop('disabled', true);
+
+            // Show user message
+            appendMessage(message, 'user');
+
+            // Show typing indicator
+            showTypingIndicator();
+
+            // Send to server
+            $.ajax({
+                url: "{{ route('chatbot.sendMessage') }}",
+                type: 'POST',
+                data: {
+                    message: message,
+                    session_id: sessionId,
+                    conversation_history: conversationHistory
+                },
+                timeout: 15000,
+                success: function(response) {
+                    hideTypingIndicator();
+
+                    if (response && response.message) {
+                        appendMessage(response.message, 'bot');
+
+                        // Update conversation history
+                        if (response.detected_intent) {
+                            conversationHistory.push(response.detected_intent);
+                            lastDetectedIntent = response.detected_intent;
+
+                            // Keep only last 5 intents for context
+                            if (conversationHistory.length > 5) {
+                                conversationHistory.shift();
+                            }
+                        }
+
+                        // Show dynamic suggestions
+                        setTimeout(() => {
+                            if (response.suggestions && response.suggestions.length > 0) {
+                                showDynamicSuggestions(response.suggestions, response.detected_intent);
+                            } else {
+                                // Fallback to basic suggestions
+                                showBasicSuggestions(message);
+                            }
+                        }, 800);
+
+                        // Log for analytics (optional)
+                        logConversationStep(message, response.detected_intent, response.suggestions);
+                    } else {
+                        appendMessage("Maaf, saya tidak dapat memproses pesan Anda saat ini.", 'bot');
+                        showErrorSuggestions();
+                    }
+                },
+                error: function(xhr, status, error) {
+                    hideTypingIndicator();
+                    console.error('Chat Error:', error);
+
+                    let errorMessage = getErrorMessage(xhr, status);
+                    appendMessage(errorMessage, 'bot');
+
+                    // Show recovery suggestions
+                    setTimeout(() => {
+                        showRecoverySuggestions();
+                    }, 500);
+                },
+                complete: function() {
+                    sendBtn.prop('disabled', false);
+                    input.focus();
+                }
+            });
+        }
+
+        // Enhanced dynamic suggestions display
+        function showDynamicSuggestions(suggestions, detectedIntent) {
+            if (!suggestions || suggestions.length === 0) return;
+
+            // Sort suggestions by relevance (if backend doesn't already do this)
+            const sortedSuggestions = prioritizeSuggestions(suggestions, detectedIntent);
+
+            // Limit to 4 suggestions max
+            const limitedSuggestions = sortedSuggestions.slice(0, 4);
+
+            const quickRepliesHTML = `
+        <div class="quick-replies dynamic-suggestions" data-intent="${detectedIntent || ''}" style="animation: slideInUp 0.4s ease-out;">
+            ${limitedSuggestions.map((suggestion, index) => 
+                `<button class="quick-reply" 
+                            onclick="handleQuickReply('${escapeHtml(suggestion)}')" 
+                            title="Tanya tentang: ${escapeHtml(suggestion)}"
+                            style="animation-delay: ${index * 0.1}s">
+                            ${suggestion}
+                        </button>`
+            ).join('')}
+        </div>
+    `;
+
+            $('#chat-messages .msg-row:last-child .msg-bubble').append(quickRepliesHTML);
+            scrollToBottom();
+        }
+
+        // Prioritize suggestions based on context
+        function prioritizeSuggestions(suggestions, detectedIntent) {
+            // Create priority map based on common user flows
+            const priorityMap = {
+                'beasiswa_bi_pengertian': ['syarat', 'cara', 'daftar', 'timeline'],
+                'genbi_pengertian': ['program', 'kegiatan', 'bergabung', 'visi'],
+                'beasiswa_bi_syarat': ['dokumen', 'cara', 'tips', 'timeline'],
+                'genbi_cara_menjadi_anggota': ['syarat', 'proses', 'waktu', 'kontak']
+            };
+
+            if (!detectedIntent || !priorityMap[detectedIntent]) {
+                return suggestions;
+            }
+
+            const priorities = priorityMap[detectedIntent];
+
+            return suggestions.sort((a, b) => {
+                const aScore = getPriorityScore(a, priorities);
+                const bScore = getPriorityScore(b, priorities);
+                return bScore - aScore;
+            });
+        }
+
+        function getPriorityScore(suggestion, priorities) {
+            const suggestionLower = suggestion.toLowerCase();
+            let score = 0;
+
+            priorities.forEach((priority, index) => {
+                if (suggestionLower.includes(priority)) {
+                    score += (priorities.length - index) * 10;
+                }
+            });
+
+            return score;
+        }
+
+        // Show basic suggestions as fallback
+        function showBasicSuggestions(userMessage) {
+            const message = userMessage.toLowerCase();
+            let suggestions = [];
+
+            // Keyword-based suggestions
+            if (message.includes('beasiswa')) {
+                suggestions = ['Syarat beasiswa BI', 'Cara mendaftar', 'Timeline pendaftaran', 'Tips lolos seleksi'];
+            } else if (message.includes('genbi')) {
+                suggestions = ['Apa itu GenBI', 'Program GenBI', 'Cara bergabung', 'Kegiatan GenBI'];
+            } else if (message.includes('daftar')) {
+                suggestions = ['Syarat pendaftaran', 'Link aplikasi', 'Dokumen dibutuhkan', 'Bantuan pendaftaran'];
+            } else if (message.includes('program')) {
+                suggestions = ['Program sosial', 'Program edukasi', 'Event terbaru', 'Cara ikut program'];
+            } else {
+                suggestions = ['Info GenBI', 'Info Beasiswa BI', 'FAQ umum', 'Hubungi admin'];
+            }
+
+            showDynamicSuggestions(suggestions, 'fallback');
+        }
+
+        // Show error recovery suggestions
+        function showRecoverySuggestions() {
+            const suggestions = ['Coba lagi', 'Hubungi admin', 'FAQ umum', 'Bantuan teknis'];
+            showDynamicSuggestions(suggestions, 'error_recovery');
+        }
+
+        // Show error-specific suggestions
+        function showErrorSuggestions() {
+            const suggestions = ['Ulangi pertanyaan', 'Bantuan umum', 'Kontak support', 'Menu utama'];
+            showDynamicSuggestions(suggestions, 'error');
+        }
+
+        // Enhanced welcome message with adaptive suggestions
+        function showWelcomeMessage() {
+            $('.welcome-message').fadeOut(300, function() {
+                appendMessage(
+                    "Halo! Saya GenBI Assistant. Saya dapat membantu Anda dengan informasi tentang GenBI dan beasiswa Bank Indonesia. Apa yang ingin Anda ketahui?",
+                    'bot',
+                    true
+                );
+
+                setTimeout(() => {
+                    // Show adaptive welcome suggestions
+                    showDynamicSuggestions([
+                        "Apa itu GenBI?",
+                        "Info beasiswa BI",
+                        "Cara mendaftar GenBI",
+                        "Program unggulan"
+                    ], 'welcome');
+                }, 1200);
+            });
+        }
+
+        // Enhanced quick reply handler with analytics
+        function handleQuickReply(text) {
+            // Track suggestion click for learning
+            trackSuggestionClick(text, lastDetectedIntent);
+
+            // Animate button click
+            const clickedButton = event.target;
+            $(clickedButton).addClass('clicked');
+
+            // Set input and send
+            $('#chat-input').val(text);
+            sendChat();
+
+            // Remove suggestions with stagger animation
+            $('.quick-replies').addClass('fade-out');
+            $('.quick-reply').each(function(index) {
+                $(this).delay(index * 50).fadeOut(200);
+            });
+
+            setTimeout(() => {
+                $('.quick-replies').remove();
+            }, 500);
+        }
+
+        // Track user interactions for learning
+        function trackSuggestionClick(suggestionText, currentIntent) {
+            // Send analytics data to backend (optional)
+            $.ajax({
+                url: '/api/chatbot/track-interaction',
+                type: 'POST',
+                data: {
+                    suggestion: suggestionText,
+                    current_intent: currentIntent,
+                    session_id: sessionId,
+                    timestamp: new Date().toISOString()
+                },
+                success: function(response) {
+                    console.log('Interaction tracked:', response);
+                },
+                error: function(xhr, status, error) {
+                    // Silent fail for analytics
+                    console.log('Analytics tracking failed:', error);
+                }
+            });
+        }
+
+        // Log conversation steps for debugging and improvement
+        function logConversationStep(userMessage, detectedIntent, suggestions) {
+            const logData = {
+                timestamp: new Date().toISOString(),
+                user_message: userMessage,
+                detected_intent: detectedIntent,
+                suggestions: suggestions,
+                session_id: sessionId,
+                conversation_length: conversationHistory.length
+            };
+
+            // Store in local storage for debugging
+            const conversationLog = JSON.parse(localStorage.getItem('chatbot_conversation_log') || '[]');
+            conversationLog.push(logData);
+
+            // Keep only last 50 interactions
+            if (conversationLog.length > 50) {
+                conversationLog.shift();
+            }
+
+            localStorage.setItem('chatbot_conversation_log', JSON.stringify(conversationLog));
+        }
+
+        // Get appropriate error message
+        function getErrorMessage(xhr, status) {
+            if (status === 'timeout') {
+                return "Koneksi timeout. Jaringan Anda mungkin lambat, silakan coba lagi.";
+            } else if (xhr.status === 429) {
+                return "Terlalu banyak pesan dalam waktu singkat. Mohon tunggu sebentar sebelum mengirim pesan lagi.";
+            } else if (xhr.status === 500) {
+                return "Terjadi kesalahan pada server. Tim teknis kami sedang memperbaikinya.";
+            } else if (xhr.status === 503) {
+                return "Layanan sedang dalam pemeliharaan. Silakan coba beberapa saat lagi.";
+            } else {
+                return "Terjadi kesalahan koneksi. Periksa koneksi internet Anda dan coba lagi.";
+            }
+        }
+
+        // Smart suggestion refresh (optional feature)
+        function refreshSuggestions() {
+            if (lastDetectedIntent) {
+                $.ajax({
+                    url: '/api/chatbot/get-fresh-suggestions',
+                    type: 'POST',
+                    data: {
+                        intent: lastDetectedIntent,
+                        conversation_history: conversationHistory,
+                        session_id: sessionId
+                    },
+                    success: function(response) {
+                        if (response.suggestions) {
+                            // Replace current suggestions
+                            $('.quick-replies').fadeOut(200, function() {
+                                $(this).remove();
+                                showDynamicSuggestions(response.suggestions, lastDetectedIntent);
+                            });
+                        }
+                    },
+                    error: function() {
+                        console.log('Failed to refresh suggestions');
+                    }
+                });
+            }
+        }
+
+        // Auto-refresh suggestions every 30 seconds if user is idle
+        let suggestionRefreshTimer;
+
+        function startSuggestionRefreshTimer() {
+            clearTimeout(suggestionRefreshTimer);
+            suggestionRefreshTimer = setTimeout(() => {
+                if ($('.quick-replies').length > 0 && !isTyping) {
+                    refreshSuggestions();
+                }
+            }, 30000);
+        }
+
+        // Enhanced CSS animations
+        const enhancedCSS = `
+<style>
+.dynamic-suggestions {
+    margin-top: 15px;
+}
+
+.quick-reply {
+    animation: bounceIn 0.4s ease-out;
+    animation-fill-mode: both;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.quick-reply:hover {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.quick-reply.clicked {
+    transform: scale(0.95);
+    background: var(--chatbot-primary);
+    color: white;
+}
+
+.quick-replies.fade-out {
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: all 0.3s ease-out;
+}
+
+@keyframes bounceIn {
+    0% {
+        opacity: 0;
+        transform: scale(0.3) translateY(20px);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.05) translateY(-5px);
+    }
+    70% {
+        transform: scale(0.95) translateY(2px);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Loading states for suggestions */
+.quick-reply.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.quick-reply.loading::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+/* Smart suggestion indicators */
+.quick-reply[data-category]::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--chatbot-success);
+}
+
+.quick-reply[data-category="priority"]::before {
+    background: var(--chatbot-warning);
+}
+
+.quick-reply[data-category="related"]::before {
+    background: var(--chatbot-info);
+}
+</style>
+`;
+
+        // Inject enhanced CSS
+        $('head').append(enhancedCSS);
+
+        // Initialize conversation tracking
+        $(document).ready(function() {
+            // Reset conversation history on page load
+            conversationHistory = [];
+
+            // Start suggestion refresh timer
+            $(document).on('click', '.quick-reply', function() {
+                startSuggestionRefreshTimer();
+            });
+
+            // Clear conversation log button (for debugging)
+            if (window.location.search.includes('debug=1')) {
+                $('body').append(`
+            <button onclick="localStorage.removeItem('chatbot_conversation_log'); alert('Conversation log cleared!')" 
+                    style="position: fixed; top: 10px; right: 10px; z-index: 10001; padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 4px; font-size: 12px;">
+                Clear Log
+            </button>
+        `);
+            }
+        });
     </script>
 </body>
 
