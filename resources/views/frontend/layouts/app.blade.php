@@ -539,6 +539,39 @@
                 transform: rotate(360deg);
             }
         }
+
+        .quick-replies {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+            padding: 8px 0;
+        }
+
+        .quick-reply {
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 18px;
+            padding: 8px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .quick-reply:hover {
+            background-color: #e0e0e0;
+            transform: translateY(-2px);
+        }
+
+        .msg-bot .quick-reply {
+            background-color: #e3f2fd;
+            border-color: #bbdefb;
+        }
+
+        .msg-bot .quick-reply:hover {
+            background-color: #bbdefb;
+        }
     </style>
 </head>
 
@@ -617,7 +650,7 @@
 
     <script>
         $(document).ready(function() {
-            // Setup CSRF Token untuk semua request AJAX
+            // Setup CSRF Token for all AJAX requests
             $.ajaxSetup({
                 headers: {
                     'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
@@ -646,11 +679,16 @@
                 }
             });
 
+            // Click event for send button
+            $('#send-btn').on('click', function(e) {
+                e.preventDefault();
+                sendChat();
+            });
+
             // Auto-focus input when typing
             $(document).on('keydown', function(e) {
                 if (!$('#chat-window').is(':visible')) return;
-                if (e.target.tagName.toLowerCase() !== 'input' && e.target.tagName
-                    .toLowerCase() !== 'textarea') {
+                if (e.target.tagName.toLowerCase() !== 'input' && e.target.tagName.toLowerCase() !== 'textarea') {
                     $('#chat-input').focus();
                 }
             });
@@ -730,12 +768,18 @@
                     if (response && response.message) {
                         appendMessage(response.message, 'bot');
 
-                        // Show contextual quick replies
-                        setTimeout(() => {
+                        // Show quick replies if available
+                        if (response.quick_replies && response.quick_replies.length > 0) {
+                            setTimeout(() => {
+                                showQuickReplies(response.quick_replies);
+                            }, 500);
+                        } else {
+                            // Show default quick replies if none provided
                             showContextualQuickReplies(message, response.message);
-                        }, 500);
+                        }
                     } else {
                         appendMessage("Maaf, saya tidak dapat memproses pesan Anda saat ini.", 'bot');
+                        showQuickReplies(["Coba lagi", "Menu utama", "Hubungi admin"]);
                     }
                 },
                 error: function(xhr, status, error) {
@@ -743,6 +787,7 @@
                     console.error('Chat Error:', error);
 
                     let errorMessage = "Maaf, terjadi kesalahan saat menghubungi server.";
+                    let quickReplies = ["Coba lagi", "Menu utama"];
 
                     if (status === 'timeout') {
                         errorMessage = "Koneksi timeout. Silakan coba lagi.";
@@ -750,9 +795,11 @@
                         errorMessage = "Terlalu banyak pesan. Silakan tunggu sebentar.";
                     } else if (xhr.status === 500) {
                         errorMessage = "Terjadi kesalahan server. Tim kami sedang memperbaikinya.";
+                        quickReplies = ["Refresh halaman", "Hubungi admin"];
                     }
 
                     appendMessage(errorMessage, 'bot');
+                    showQuickReplies(quickReplies);
                 },
                 complete: function() {
                     sendBtn.prop('disabled', false);
@@ -773,24 +820,24 @@
 
             if (sender === 'user') {
                 messageHTML = `
-                    <div class="msg-row msg-user">
-                        <div class="msg-bubble user">
-                            ${escapeHtml(text)}
-                            <div style="font-size: 11px; opacity: 0.7; margin-top: 4px;">${timestamp}</div>
-                        </div>
-                        <div class="chat-avatar user">U</div>
-                    </div>
-                `;
+            <div class="msg-row msg-user">
+                <div class="msg-bubble user">
+                    ${escapeHtml(text)}
+                    <div class="message-timestamp">${timestamp}</div>
+                </div>
+                <div class="chat-avatar user">U</div>
+            </div>
+        `;
             } else {
                 messageHTML = `
-                    <div class="msg-row msg-bot">
-                        <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
-                        <div class="msg-bubble bot">
-                            ${text}
-                            <div style="font-size: 11px; opacity: 0.5; margin-top: 4px;">${timestamp}</div>
-                        </div>
-                    </div>
-                `;
+            <div class="msg-row msg-bot">
+                <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
+                <div class="msg-bubble bot">
+                    ${text}
+                    <div class="message-timestamp">${timestamp}</div>
+                </div>
+            </div>
+        `;
             }
 
             messagesContainer.append(messageHTML);
@@ -803,17 +850,17 @@
 
             isTyping = true;
             const typingHTML = `
-                <div class="msg-row msg-bot" id="typing-indicator">
-                    <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
-                    <div class="msg-bubble bot typing-indicator">
-                        <div class="typing-dots">
-                            <div class="typing-dot"></div>
-                            <div class="typing-dot"></div>
-                            <div class="typing-dot"></div>
-                        </div>
-                    </div>
+        <div class="msg-row msg-bot" id="typing-indicator">
+            <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
+            <div class="msg-bubble bot typing-indicator">
+                <div class="typing-dots">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
                 </div>
-            `;
+            </div>
+        </div>
+    `;
 
             $('#chat-messages').append(typingHTML);
             scrollToBottom();
@@ -827,15 +874,20 @@
 
         // Show quick replies
         function showQuickReplies(replies) {
-            const quickRepliesHTML = `
-                <div class="quick-replies">
-                    ${replies.map(reply =>
-                        `<button class="quick-reply" onclick="handleQuickReply('${escapeHtml(reply)}')">${reply}</button>`
-                    ).join('')}
-                </div>
-            `;
+            // Remove existing quick replies first
+            $('.quick-replies').remove();
 
-            $('#chat-messages .msg-row:last-child .msg-bubble').append(quickRepliesHTML);
+            if (!replies || replies.length === 0) return;
+
+            const quickRepliesHTML = `
+        <div class="quick-replies">
+            ${replies.map(reply => 
+                `<button class="quick-reply" onclick="handleQuickReply('${escapeHtml(reply)}')">${reply}</button>`
+            ).join('')}
+        </div>
+    `;
+
+            $('#chat-messages').append(quickRepliesHTML);
             scrollToBottom();
         }
 
@@ -909,7 +961,6 @@
                 AOS.init();
             }
 
-            // Initialize WOW
             // Initialize WOW
             if (typeof WOW !== 'undefined') {
                 new WOW().init();
