@@ -38,6 +38,8 @@ use Google\Cloud\Dialogflow\V2\SessionsClient;
 |
 */
 
+Route::get('/chatbot-test', [\App\Http\Controllers\ChatbotController::class, 'fallbackTest']);
+
 
 
 /** for side bar menu active */

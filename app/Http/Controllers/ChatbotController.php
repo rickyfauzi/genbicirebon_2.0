@@ -104,4 +104,38 @@ class ChatbotController extends Controller
         dd($response->json());
         return 'Maaf, saya tidak bisa menjawab saat ini.';
     }
+
+    public function testOpenRouter(Request $request)
+    {
+        $apiKey = "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";
+
+        // Contoh pesan dari user
+        $userMessage = "Halo, apa kabar?";
+
+        // Kirim request ke OpenRouter API
+        $response = Http::withHeaders([
+            'Authorization' => "Bearer {$apiKey}",
+            'Content-Type'  => 'application/json',
+            'HTTP-Referer'  => 'https://genbicirebon.org/', // ganti sesuai domain kamu
+            'X-Title'       => 'Laravel Chatbot Test',
+        ])->post('https://openrouter.ai/api/v1/chat/completions', [
+            'model' => 'openai/gpt-3.5-turbo',
+            'messages' => [
+                ['role' => 'system', 'content' => 'You are a helpful assistant.'],
+                ['role' => 'user', 'content' => $userMessage],
+            ],
+        ]);
+
+        // Cek apakah request sukses
+        if ($response->successful()) {
+            return $response->json();
+        } else {
+            return [
+                'error' => [
+                    'status' => $response->status(),
+                    'body'   => $response->json()
+                ]
+            ];
+        }
+    }
 }
