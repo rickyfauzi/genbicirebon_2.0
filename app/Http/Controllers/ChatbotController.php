@@ -30,10 +30,17 @@ class ChatbotController extends Controller
             }
 
             $message = $request->input('message');
+            $response = null;
 
             try {
                 // Coba ke Dialogflow
                 $response = $this->detectIntent($message);
+
+                // Kalau Dialogflow tidak punya jawaban, fallback ke OpenAI
+                if (empty(trim($response))) {
+                    Log::info("Dialogflow tidak punya jawaban, fallback ke OpenAI.");
+                    $response = $this->fallbackAI($message);
+                }
             } catch (\Exception $e) {
                 Log::warning("Dialogflow gagal, fallback ke AI: " . $e->getMessage());
                 $response = $this->fallbackAI($message);
@@ -49,6 +56,37 @@ class ChatbotController extends Controller
             return response()->json(['message' => 'Maaf, terjadi kesalahan di server.'], 500);
         }
     }
+
+    private function fallbackAI(string $text)
+    {
+        $apiKey = "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";
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $apiKey,
+            'Content-Type'  => 'application/json',
+            'HTTP-Referer'  => 'https://genbicirebon.org/', // domain kamu
+            'X-Title'       => 'Genbi Cirebon Chatbot', // nama app kamu
+        ])->post('https://openrouter.ai/api/v1/chat/completions', [
+            "model" => "mistralai/mistral-7b-instruct", // model gratis di OpenRouter
+            "messages" => [
+                ["role" => "system", "content" => "Kamu adalah asisten AI yang membantu pengguna."],
+                ["role" => "user", "content" => $text]
+            ]
+        ]);
+
+        if ($response->successful()) {
+            return $response->json()['choices'][0]['message']['content'] ?? 'Maaf, saya tidak bisa menjawab saat ini.';
+        }
+
+        // Log error untuk debug
+        Log::error('Fallback AI error: ' . json_encode([
+            'status' => $response->status(),
+            'body' => $response->json()
+        ]));
+
+        return 'Maaf, saya tidak bisa menjawab saat ini.';
+    }
+
 
     public function detectIntent(string $text)
     {
