@@ -84,7 +84,7 @@ class ChatbotController extends Controller
 
     private function fallbackAI(string $text)
     {
-        $apiKey = "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";
+        $apiKey = "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";
 
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
