@@ -85,7 +85,6 @@ class ChatbotController extends Controller
     private function fallbackAI(string $text)
     {
         $apiKey = "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";
-
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type' => 'application/json',
@@ -101,7 +100,7 @@ class ChatbotController extends Controller
             return $response->json()['choices'][0]['message']['content'] ?? 'Maaf, saya tidak bisa menjawab saat ini.';
         }
 
-        dd($response->json());
+        // dd($response->json());
         return 'Maaf, saya tidak bisa menjawab saat ini.';
     }
 
