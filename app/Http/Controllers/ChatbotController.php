@@ -90,7 +90,7 @@ class ChatbotController extends Controller
 
     public function detectIntent(string $text)
     {
-        $projectId = 'websitebot-etqii'; // Ganti dengan ID Project kamu
+        $projectId = 'websitebot-etqi'; // Ganti dengan ID Project kamu
         $sessionId = session()->getId();
 
         $credentialsPath = storage_path('app/google/dialogflow-credentials.json');
