@@ -105,7 +105,7 @@ class ChatbotController extends Controller
         return 'Maaf, saya tidak bisa menjawab saat ini.';
     }
 
-    public function testOpenRouter(Request $request)
+    public function fallbackTest(Request $request)
     {
         $apiKey = "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";
 
