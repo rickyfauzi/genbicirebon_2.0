@@ -136,6 +136,12 @@ class ChatbotController extends Controller
             'gen bi',
             'generasi baru indonesia',
             'komunitas genbi',
+            'chapter',
+            'cabang',
+            'wilayah',
+            'daerah',
+            'kota',
+            'provinsi',
 
             // Beasiswa related
             'beasiswa',
@@ -145,6 +151,8 @@ class ChatbotController extends Controller
             'beasiswa bank indonesia',
             'syarat beasiswa',
             'cara daftar beasiswa',
+            'penerima beasiswa',
+            'alumni beasiswa',
 
             // Bank Indonesia related  
             'bank indonesia',
@@ -166,6 +174,7 @@ class ChatbotController extends Controller
             'semester',
             'prestasi akademik',
             'wisuda',
+            'fakultas',
 
             // Program/kegiatan related
             'workshop',
@@ -174,20 +183,66 @@ class ChatbotController extends Controller
             'pengabdian masyarakat',
             'penelitian',
             'publikasi',
-            'karya ilmiah'
+            'karya ilmiah',
+            'kegiatan',
+            'program',
+
+            // Lokasi/organisasi related
+            'jakarta',
+            'bandung',
+            'surabaya',
+            'medan',
+            'makassar',
+            'yogyakarta',
+            'semarang',
+            'palembang',
+            'bali',
+            'manado',
+            'balikpapan',
+            'pontianak',
+            'cirebon',
+            'bogor',
+            'tangerang',
+            'bekasi',
+            'depok'
         ];
 
         $text = strtolower($text);
 
+        // Cek keyword langsung
         foreach ($scopeKeywords as $keyword) {
             if (strpos($text, $keyword) !== false) {
                 return true;
             }
         }
 
-        // Cek dengan fuzzy matching untuk typo
+        // Cek konteks pertanyaan yang masih relevan
+        $contextualPhrases = [
+            'ada di',
+            'dimana saja',
+            'di mana saja',
+            'lokasi',
+            'tempat',
+            'berapa banyak',
+            'jumlah',
+            'total',
+            'seberapa banyak',
+            'selain',
+            'lain',
+            'lainnya',
+            'yang lain'
+        ];
+
+        foreach ($contextualPhrases as $phrase) {
+            if (strpos($text, $phrase) !== false) {
+                // Jika ada konteks + ada referensi sebelumnya tentang GenBI = masih dalam scope
+                return true;
+            }
+        }
+
+        // Fuzzy matching untuk typo
         foreach ($scopeKeywords as $keyword) {
-            if (similar_text(strtolower($keyword), $text, $percent) && $percent > 60) {
+            if (similar_text(strtolower($keyword), $text, $percent) && $percent > 70) {
                 return true;
             }
         }
@@ -204,26 +259,31 @@ class ChatbotController extends Controller
         }
 
         // System prompt yang sangat fokus dan membatasi
-        $systemPrompt = "Anda adalah asisten AI khusus untuk GenBI Cirebon dan Bank Indonesia.
+        $systemPrompt = "Anda adalah asisten AI khusus untuk GenBI dan Bank Indonesia.
 
 IDENTITAS:
-- Nama: ChatBot GenBI Cirebon
-- Fokus: HANYA menjawab tentang GenBI, Beasiswa BI, dan Bank Indonesia
+- Nama: ChatBot GenBI 
+- Fokus: Menjawab pertanyaan tentang GenBI, Beasiswa BI, dan Bank Indonesia
+- Wilayah: Memahami GenBI di seluruh Indonesia
 
-ATURAN KETAT:
-1. WAJIB gunakan Bahasa Indonesia formal tapi ramah
-2. Maksimal 2-3 kalimat per jawaban  
-3. Jika tidak tahu PASTI, katakan: 'Untuk informasi lebih akurat, silakan hubungi sekretariat GenBI Cirebon atau kantor Bank Indonesia'
-4. DILARANG memberikan informasi yang tidak akurat atau spekulatif
-5. Jika ada pertanyaan rumit, arahkan ke sumber resmi
+ATURAN RESPONS:
+1. Gunakan Bahasa Indonesia yang ramah dan informatif
+2. Jawaban 2-3 kalimat, langsung to the point
+3. Jika tidak tahu PASTI, katakan: 'Untuk informasi terkini, silakan hubungi sekretariat GenBI atau Bank Indonesia terdekat'
+4. DILARANG membuat informasi yang tidak akurat
 
-KONTEKS PENTING:
+KONTEKS GENBI:
 - GenBI = komunitas mahasiswa penerima beasiswa Bank Indonesia
-- Tujuan: pengembangan diri dan kontribusi untuk Indonesia  
-- Kegiatan: workshop, seminar ekonomi, pengabdian masyarakat, penelitian
-- GenBI Cirebon = chapter lokal GenBI di wilayah Cirebon
+- Ada chapter/cabang di berbagai kota di Indonesia (Jakarta, Bandung, Surabaya, Medan, Cirebon, dll)
+- Tujuan: pengembangan diri dan kontribusi untuk Indonesia
+- Kegiatan: workshop, seminar, pengabdian masyarakat, penelitian
 
-JIKA TIDAK TAHU: Jujur mengakui ketidaktahuan dan arahkan ke sumber resmi.";
+UNTUK PERTANYAAN LOKASI/WILAYAH:
+- GenBI ada di banyak kota/universitas di Indonesia
+- Setiap chapter memiliki kegiatan dan program masing-masing
+- Jika ditanya lokasi spesifik yang tidak tahu pasti, arahkan ke sumber resmi
+
+Jawab dengan informatif dan membantu!";
 
         try {
             $response = Http::timeout(25)->withHeaders([
@@ -268,13 +328,25 @@ JIKA TIDAK TAHU: Jujur mengakui ketidaktahuan dan arahkan ke sumber resmi.";
         $validIndicators = [
             'genbi',
             'gen bi',
-            'generasi baru',
+            'generasi baru indonesia',
             'beasiswa',
             'bank indonesia',
             'bi',
             'mahasiswa',
             'komunitas',
-            'cirebon'
+            'cirebon',
+            'chapter',
+            'cabang',
+            'wilayah',
+            'daerah',
+            'jakarta',
+            'bandung',
+            'surabaya',
+            'medan',
+            'program',
+            'kegiatan',
+            'workshop',
+            'seminar'
         ];
 
         foreach ($validIndicators as $indicator) {
@@ -283,7 +355,24 @@ JIKA TIDAK TAHU: Jujur mengakui ketidaktahuan dan arahkan ke sumber resmi.";
             }
         }
 
-        // Jika tidak ada indikator scope, kemungkinan respons melenceng
+        // Cek apakah respons masih membahas topik yang relevan meskipun tidak ada keyword eksplisit
+        $contextualWords = [
+            'informasi',
+            'hubungi',
+            'sekretariat',
+            'kantor',
+            'resmi',
+            'lebih lanjut',
+            'detail',
+            'akurat'
+        ];
+
+        foreach ($contextualWords as $word) {
+            if (strpos($response, $word) !== false) {
+                return true; // Respons mengarahkan ke sumber resmi = valid
+            }
+        }
+
         return false;
     }
 
