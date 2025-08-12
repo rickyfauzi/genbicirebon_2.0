@@ -85,9 +85,12 @@ class ChatbotController extends Controller
     private function fallbackAI(string $text)
     {
         $apiKey = "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";
+
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
-            'Content-Type' => 'application/json',
+            'Content-Type'  => 'application/json',
+            'HTTP-Referer'  => 'https://genbicirebon.org/', // domain kamu
+            'X-Title'       => 'Genbi Cirebon Chatbot', // nama app kamu
         ])->post('https://openrouter.ai/api/v1/chat/completions', [
             "model" => "mistralai/mistral-7b-instruct", // model gratis di OpenRouter
             "messages" => [
@@ -100,7 +103,7 @@ class ChatbotController extends Controller
             return $response->json()['choices'][0]['message']['content'] ?? 'Maaf, saya tidak bisa menjawab saat ini.';
         }
 
-        // dd($response->json());
+        Log::error('Fallback AI error: ' . json_encode($response->json()));
         return 'Maaf, saya tidak bisa menjawab saat ini.';
     }
 
