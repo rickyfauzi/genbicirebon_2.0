@@ -63,15 +63,10 @@ class PembinaController extends Controller
 
         $data = Kegiatan::all();
         $komisariat = Komisariat::all();
-        $pdf = PDF::loadView('pembina.kegiatanrekappdf', compact('data', 'komisariat'), $data->toArray())->output();
-        ;
+        $pdf = PDF::loadView('pembina.kegiatanrekappdf', compact('data', 'komisariat'), $data->toArray())->output();;
         return response()->streamDownload(
-            fn() => print ($pdf),
+            fn() => print($pdf),
             "rekap-kegiatan-genbi.pdf"
         );
-
-
-
-
     }
 }
