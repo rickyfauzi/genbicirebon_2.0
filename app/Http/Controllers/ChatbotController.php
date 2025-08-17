@@ -66,21 +66,21 @@ class ChatbotController extends Controller
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type'  => 'application/json',
-            'HTTP-Referer'  => 'https://genbicirebon.org/', // domain kamu
-            'X-Title'       => 'Genbi Cirebon Chatbot', // nama app kamu
+            'HTTP-Referer'  => 'https://genbicirebon.org/',
+            'X-Title'       => 'Genbi Cirebon Chatbot',
         ])->post('https://openrouter.ai/api/v1/chat/completions', [
-            "model" => "mistralai/mistral-7b-instruct", // model gratis di OpenRouter
+            "model" => "mistralai/mistral-7b-instruct", // atau model lain yang lebih powerful
             "messages" => [
-                ["role" => "system", "content" => "Kamu adalah asisten AI yang membantu pengguna."],
+                ["role" => "system", "content" => "Kamu adalah asisten AI yang cerdas dan kreatif. Kamu boleh menjawab pertanyaan apa pun dengan bebas dan informatif. Jika kamu tidak tahu jawabannya, kamu boleh berimprovisasi dengan jawaban yang masuk akal."],
                 ["role" => "user", "content" => $text]
-            ]
+            ],
+            "temperature" => 0.7 // Nilai lebih tinggi untuk kreativitas lebih
         ]);
 
         if ($response->successful()) {
             return $response->json()['choices'][0]['message']['content'] ?? 'Maaf, saya tidak bisa menjawab saat ini.';
         }
 
-        // Log error untuk debug
         Log::error('Fallback AI error: ' . json_encode([
             'status' => $response->status(),
             'body' => $response->json()
