@@ -25,51 +25,36 @@ class ChatbotController extends Controller
             'message' => 'required|string',
         ]);
 
-        $firestore = new FirestoreService();
-
         try {
-            $message = $request->input('message');
-            $startTime = microtime(true);
-
-            $response = $this->detectIntent($message);
-
-            if (empty(trim($response))) {
-                $response = $this->fallbackAI($message);
-                $source = "openai";
-            } else {
-                $source = "dialogflow";
+            if (!class_exists(SessionsClient::class)) {
+                Log::error('SessionsClient class not found. Pastikan library google/cloud-dialogflow sudah di-install.');
+                return response()->json(['message' => 'Library Dialogflow tidak ditemukan. Silakan install dengan composer.'], 500);
             }
 
-            $endTime = microtime(true);
-            $responseTime = round(($endTime - $startTime) * 1000);
+            $message = $request->input('message');
+            $response = null;
 
-            // simpan log percakapan ke Firestore
-            $firestore->addChatLog([
-                'session_id' => session()->getId(),
-                'user_id'    => Auth::id() ?? 'guest',
-                'question'   => $message,
-                'answer'     => $response,
-                'source'     => $source,
-                'timestamp'  => now()->toDateTimeString(),
-            ]);
+            try {
+                // Coba ke Dialogflow
+                $response = $this->detectIntent($message);
 
-            // update metrics harian
-            $firestore->updateSystemMetrics(now()->format('Y-m-d'), [
-                'date' => now()->format('Y-m-d'),
-                'total_queries' => 1,
-                $source . '_success' => 1,
-            ]);
+                // Kalau Dialogflow tidak punya jawaban, fallback ke OpenAI
+                if (empty(trim($response))) {
+                    Log::info("Dialogflow tidak punya jawaban, fallback ke OpenAI.");
+                    $response = $this->fallbackAI($message);
+                }
+            } catch (\Exception $e) {
+                Log::warning("Dialogflow gagal, fallback ke AI: " . $e->getMessage());
+                $response = $this->fallbackAI($message);
+            }
 
             return response()->json([
                 'message' => $response
             ]);
         } catch (\Exception $e) {
-            $firestore->addErrorLog([
-                'error_message' => $e->getMessage(),
-                'user_message'  => $request->input('message'),
-                'timestamp'     => now()->toDateTimeString(),
-            ]);
-
+            Log::error("Exception: " . $e->getMessage());
+            Log::error("File: " . $e->getFile());
+            Log::error("Line: " . $e->getLine());
             return response()->json(['message' => 'Maaf, terjadi kesalahan di server.'], 500);
         }
     }
