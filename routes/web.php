@@ -42,7 +42,7 @@ Route::get('/chatbot-test', [\App\Http\Controllers\ChatbotController::class, 'fa
 
 Route::get('/firestore-test', function (\App\Services\FirestoreService $firestore) {
     $firestore->addChatLog("test-session", "Halo?", "Hai juga!", "manual");
-    return "Firestore OK";
+    return "Firestore mantap";
 });
 
 
