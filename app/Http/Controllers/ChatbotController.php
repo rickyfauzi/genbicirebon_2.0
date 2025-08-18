@@ -22,19 +22,33 @@ class ChatbotController extends Controller
     public function sendMessage(Request $request, FirestoreService $firestore)
     {
         $message = $request->input('message');
-        $response = "Halo, ini contoh response";
+        $sessionId = session()->getId();
+        $userId = auth()->id();
 
-        // Simpan ke Firestore
+        // 1. Coba ke Dialogflow dulu
+        $response = $this->detectIntent($message);
+
+        // 2. Kalau kosong / tidak ada jawaban, fallback ke OpenAI
+        if (empty($response)) {
+            $response = $this->fallbackAI($message);
+            $source = "openai";
+        } else {
+            $source = "dialogflow";
+        }
+
+        // 3. Simpan percakapan ke Firestore
         $firestore->addChatLog(
-            session()->getId(),
+            $sessionId,
             $message,
             $response,
-            "openai",
-            auth()->id()
+            $source,
+            $userId
         );
 
+        // 4. Kembalikan ke frontend
         return response()->json(['message' => $response]);
     }
+
 
 
     private function fallbackAI(string $text)
@@ -70,7 +84,7 @@ class ChatbotController extends Controller
 
     public function detectIntent(string $text)
     {
-        $projectId = 'websitebot-etqi'; // Ganti dengan ID Project kamu
+        $projectId = 'websitebot-etqi'; // Ganti dengan Project ID milikmu
         $sessionId = session()->getId();
 
         $credentialsPath = storage_path('app/google/dialogflow-credentials.json');
@@ -93,12 +107,11 @@ class ChatbotController extends Controller
         $detectIntentRequest->setQueryInput($queryInput);
 
         $response = $sessionsClient->detectIntent($detectIntentRequest);
-
         $queryResult = $response->getQueryResult();
-        $fulfillmentText = $queryResult->getFulfillmentText();
 
-        return $fulfillmentText;
+        return $queryResult->getFulfillmentText() ?? '';
     }
+
 
     // private function fallbackAI(string $text)
     // {
