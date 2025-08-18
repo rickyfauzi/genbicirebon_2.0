@@ -21,19 +21,19 @@ class ChatbotController extends Controller
 
     public function sendMessage(Request $request, FirestoreService $firestore)
     {
-        $message   = $request->input('message');
+        $message = $request->input('message');
         $sessionId = session()->getId();
-        $userId    = auth()->id();
+        $userId = auth()->id();
 
         // 1. Coba ke Dialogflow dulu
         $response = $this->detectIntent($message);
 
-        // 2. Cek kalau kosong ATAU isinya mirip "No matched intent"
-        if (empty($response) || stripos($response, 'No matched intent') !== false) {
+        // 2. Kalau kosong / tidak ada jawaban, fallback ke OpenAI
+        if (empty($response)) {
             $response = $this->fallbackAI($message);
-            $source   = "openai";
+            $source = "openai";
         } else {
-            $source   = "dialogflow";
+            $source = "dialogflow";
         }
 
         // 3. Simpan percakapan ke Firestore
@@ -48,7 +48,6 @@ class ChatbotController extends Controller
         // 4. Kembalikan ke frontend
         return response()->json(['message' => $response]);
     }
-
 
 
 
