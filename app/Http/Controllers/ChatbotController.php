@@ -19,45 +19,23 @@ class ChatbotController extends Controller
         return view('chatbot');
     }
 
-    public function sendMessage(Request $request)
+    public function sendMessage(Request $request, FirestoreService $firestore)
     {
-        $request->validate([
-            'message' => 'required|string',
-        ]);
+        $message = $request->input('message');
+        $response = "Halo, ini contoh response";
 
-        try {
-            if (!class_exists(SessionsClient::class)) {
-                Log::error('SessionsClient class not found. Pastikan library google/cloud-dialogflow sudah di-install.');
-                return response()->json(['message' => 'Library Dialogflow tidak ditemukan. Silakan install dengan composer.'], 500);
-            }
+        // Simpan ke Firestore
+        $firestore->addChatLog(
+            session()->getId(),
+            $message,
+            $response,
+            "openai",
+            auth()->id()
+        );
 
-            $message = $request->input('message');
-            $response = null;
-
-            try {
-                // Coba ke Dialogflow
-                $response = $this->detectIntent($message);
-
-                // Kalau Dialogflow tidak punya jawaban, fallback ke OpenAI
-                if (empty(trim($response))) {
-                    Log::info("Dialogflow tidak punya jawaban, fallback ke OpenAI.");
-                    $response = $this->fallbackAI($message);
-                }
-            } catch (\Exception $e) {
-                Log::warning("Dialogflow gagal, fallback ke AI: " . $e->getMessage());
-                $response = $this->fallbackAI($message);
-            }
-
-            return response()->json([
-                'message' => $response
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Exception: " . $e->getMessage());
-            Log::error("File: " . $e->getFile());
-            Log::error("Line: " . $e->getLine());
-            return response()->json(['message' => 'Maaf, terjadi kesalahan di server.'], 500);
-        }
+        return response()->json(['message' => $response]);
     }
+
 
     private function fallbackAI(string $text)
     {

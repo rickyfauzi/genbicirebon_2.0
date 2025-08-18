@@ -40,6 +40,10 @@ use Google\Cloud\Dialogflow\V2\SessionsClient;
 
 Route::get('/chatbot-test', [\App\Http\Controllers\ChatbotController::class, 'fallbackTest']);
 
+Route::get('/firestore-test', function (\App\Services\FirestoreService $firestore) {
+    $firestore->addChatLog("test-session", "Halo?", "Hai juga!", "manual");
+    return "Firestore OK";
+});
 
 
 /** for side bar menu active */
