@@ -19,65 +19,36 @@ class ChatbotController extends Controller
         return view('chatbot');
     }
 
-    public function sendMessage(Request $request)
+    public function sendMessage(Request $request, FirestoreService $firestore)
     {
-        $userMessage = $request->input('message');
-        $sessionId = $request->session()->getId();
+        $message   = $request->input('message');
+        $sessionId = session()->getId();
+        $userId    = auth()->id();
 
-        try {
-            // --- 1. Kirim ke Dialogflow ---
-            $client = new SessionsClient([
-                'credentials' => base_path(env('DIALOGFLOW_CREDENTIALS'))
-            ]);
+        // 1. Coba ke Dialogflow dulu
+        $response = $this->detectIntent($message);
 
-            $session = $client->sessionName(env('DIALOGFLOW_PROJECT'), $sessionId);
-            $textInput = new TextInput();
-            $textInput->setText($userMessage);
-            $textInput->setLanguageCode('id'); // bisa id/en/auto, fallback tetap OpenAI
-
-            $queryInput = new QueryInput();
-            $queryInput->setText($textInput);
-
-            $requestDialogflow = new DetectIntentRequest();
-            $requestDialogflow->setSession($session);
-            $requestDialogflow->setQueryInput($queryInput);
-
-            $response = $client->detectIntent($requestDialogflow);
-            $queryResult = $response->getQueryResult();
-
-            $dialogflowReply = $queryResult->getFulfillmentText();
-
-            $client->close();
-
-            // --- 2. Kalau tidak ada jawaban relevan di Dialogflow -> fallback OpenAI ---
-            if (empty($dialogflowReply)) {
-                $openAiResponse = Http::withToken(env('OPENAI_API_KEY'))
-                    ->post('https://api.openai.com/v1/chat/completions', [
-                        'model' => 'gpt-4o-mini', // atau gpt-4.1 / gpt-5 kalau tersedia
-                        'messages' => [
-                            ['role' => 'system', 'content' => 'Kamu adalah chatbot GenBI Cirebon yang bisa menjawab dalam bahasa apapun.'],
-                            ['role' => 'user', 'content' => $userMessage],
-                        ],
-                        'temperature' => 0.7,
-                        'max_tokens' => 500,
-                    ]);
-
-                $reply = $openAiResponse->json()['choices'][0]['message']['content'];
-            } else {
-                $reply = $dialogflowReply;
-            }
-
-            return response()->json([
-                'reply' => $reply,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Chatbot error: ' . $e->getMessage());
-
-            return response()->json([
-                'reply' => 'Maaf, terjadi kesalahan pada sistem chatbot.',
-            ]);
+        // 2. Cek kalau kosong ATAU isinya mirip "No matched intent"
+        if (empty($response) || stripos($response, 'No matched intent') !== false) {
+            $response = $this->fallbackAI($message);
+            $source   = "openai";
+        } else {
+            $source   = "dialogflow";
         }
+
+        // 3. Simpan percakapan ke Firestore
+        $firestore->addChatLog(
+            $sessionId,
+            $message,
+            $response,
+            $source,
+            $userId
+        );
+
+        // 4. Kembalikan ke frontend
+        return response()->json(['message' => $response]);
     }
+
 
 
 
