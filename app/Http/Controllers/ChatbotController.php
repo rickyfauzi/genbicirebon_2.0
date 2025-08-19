@@ -2,184 +2,153 @@
 
 namespace App\Http\Controllers;
 
-use Google\Cloud\Dialogflow\V2\Client\SessionsClient;
 use Illuminate\Http\Request;
+use Google\Cloud\Dialogflow\V2\Client\SessionsClient;
 use Google\Cloud\Dialogflow\V2\QueryInput;
 use Google\Cloud\Dialogflow\V2\TextInput;
 use Google\Cloud\Dialogflow\V2\DetectIntentRequest;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use App\Services\FirestoreService;
-use Illuminate\Support\Facades\Auth;
 
 class ChatbotController extends Controller
 {
-    public function index()
+    private $firestoreService;
+
+    public function __construct(FirestoreService $firestoreService)
     {
-        return view('chatbot');
+        $this->firestoreService = $firestoreService;
     }
 
-    public function sendMessage(Request $request, FirestoreService $firestore)
+    public function sendMessage(Request $request)
     {
-        $message = trim($request->input('message'));
-        if (empty($message)) {
-            return response()->json(['message' => 'Pertanyaan tidak boleh kosong.', 'suggests' => []]);
-        }
-
-        $sessionId = session()->getId();
+        $message = $request->input('message');
+        $sessionId = $request->input('session_id', session()->getId());
         $userId = auth()->id();
-        $today = date('Y-m-d');
 
-        $response = '';
-        $suggests = [];
-        $source = 'dialogflow';
+        $response = [
+            'message' => 'Maaf, terjadi kesalahan. Silakan coba lagi nanti.',
+            'suggestions' => [],
+        ];
+        $source = 'error';
 
         try {
-            // 1. Coba Dialogflow
-            $response = $this->detectIntent($message);
+            // Layer 1: Coba Dialogflow
+            $dialogflowResponse = $this->detectIntent($message);
 
-            // 2. Kalau kosong, cari di Firebase (knowledge_base dari fallback sebelumnya)
-            if (empty($response)) {
-                $source = 'firebase';
-                $response = $firestore->searchKnowledgeBase($message, 80.0); // Threshold 80%
+            if ($dialogflowResponse && !empty($dialogflowResponse['text']) && !$dialogflowResponse['is_fallback']) {
+                $response['message'] = $dialogflowResponse['text'];
+                $source = 'dialogflow';
+                // Minta saran ke OpenAI berdasarkan jawaban Dialogflow
+                $openAIResult = $this->fallbackWithOpenAI($message, true); // true = suggestions only
+                $response['suggestions'] = $openAIResult['suggestions'] ?? [];
+            } else {
+                // Layer 2: Cari di Firestore Knowledge Base
+                $firestoreAnswer = $this->firestoreService->searchKnowledgeBase($message);
+                if ($firestoreAnswer) {
+                    $response['message'] = $firestoreAnswer;
+                    $source = 'firestore';
+                    // Minta saran ke OpenAI berdasarkan jawaban Firestore
+                    $openAIResult = $this->fallbackWithOpenAI($message, true);
+                    $response['suggestions'] = $openAIResult['suggestions'] ?? [];
+                } else {
+                    // Layer 3: Fallback ke OpenAI untuk jawaban & saran
+                    $openAIResult = $this->fallbackWithOpenAI($message);
+                    if (!empty($openAIResult['answer'])) {
+                        $response['message'] = $openAIResult['answer'];
+                        $response['suggestions'] = $openAIResult['suggestions'] ?? [];
+                        $source = 'openai';
 
-                // 3. Kalau masih kosong, fallback ke OpenAI + generate suggests
-                if (empty($response)) {
-                    $source = 'openai';
-                    $openAIResponse = $this->fallbackAI($message);
-
-                    // Parse response dari OpenAI (format JSON)
-                    $parsed = json_decode($openAIResponse, true);
-                    $response = $parsed['answer'] ?? 'Maaf, saya tidak bisa menjawab saat ini.';
-                    $suggests = $parsed['suggests'] ?? [];
-
-                    // Simpan ke knowledge_base kalau sukses (tentukan category sederhana, bisa di-improve dengan classify)
-                    if (!empty($response)) {
-                        $category = $this->determineCategory($message); // Method helper untuk category
-                        $firestore->addKnowledgeBase($message, $response, $category);
+                        // Learning Loop: Simpan pengetahuan baru ke Firestore
+                        $this->firestoreService->addKnowledgeBase($message, $openAIResult['answer']);
                     }
                 }
             }
 
-            // 4. Simpan percakapan ke Firestore
-            $firestore->addChatLog($sessionId, $message, $response, $source, $userId);
-
-            // 5. Update metrics (contoh: increment total_query dan source-specific)
-            $updates = [
-                'total_queries' => ['increment' => 1],
-                $source . '_count' => ['increment' => 1],
-            ];
-            $firestore->updateSystemMetrics($today, $updates);
-
-            return response()->json([
-                'message' => $response,
-                'suggests' => $suggests
-            ]);
+            // Simpan log percakapan
+            $this->firestoreService->addChatLog($sessionId, $message, $response['message'], $source, $userId);
         } catch (\Exception $e) {
-            Log::error('Chatbot error: ' . $e->getMessage());
-            $firestore->addErrorLog($e->getMessage(), $message, $userId);
-            return response()->json(['message' => 'Terjadi kesalahan. Coba lagi nanti.', 'suggests' => []], 500);
+            Log::error('Chatbot Controller Error: ' . $e->getMessage() . ' on line ' . $e->getLine());
         }
+
+        return response()->json($response);
     }
 
     private function detectIntent(string $text)
     {
-        $projectId = 'websitebot-etqi'; // Ganti dengan Project ID milikmu
-        $sessionId = session()->getId();
+        try {
+            $projectId = env('DIALOGFLOW_PROJECT_ID');
+            $sessionId = session()->getId();
+            $credentialsPath = storage_path(env('FIREBASE_CREDENTIALS'));
 
-        $credentialsPath = storage_path('app/google/dialogflow-credentials.json');
+            $sessionsClient = new SessionsClient(['credentials' => $credentialsPath]);
+            $session = $sessionsClient->sessionName($projectId, $sessionId);
 
-        $sessionsClient = new SessionsClient([
-            'credentials' => $credentialsPath
-        ]);
+            $textInput = (new TextInput())->setText($text)->setLanguageCode('id');
+            $queryInput = (new QueryInput())->setText($textInput);
 
-        $session = $sessionsClient->sessionName($projectId, $sessionId);
+            $request = (new DetectIntentRequest())
+                ->setSession($session)
+                ->setQueryInput($queryInput);
 
-        $textInput = new TextInput();
-        $textInput->setText($text);
-        $textInput->setLanguageCode('id');
+            $response = $sessionsClient->detectIntent($request);
+            $queryResult = $response->getQueryResult();
 
-        $queryInput = new QueryInput();
-        $queryInput->setText($textInput);
+            $sessionsClient->close();
 
-        $detectIntentRequest = new DetectIntentRequest();
-        $detectIntentRequest->setSession($session);
-        $detectIntentRequest->setQueryInput($queryInput);
-
-        $response = $sessionsClient->detectIntent($detectIntentRequest);
-        $queryResult = $response->getQueryResult();
-
-        return $queryResult->getFulfillmentText() ?? '';
-    }
-
-    private function fallbackAI(string $text)
-    {
-        $apiKey = env('OPENROUTER_API_KEY');
-
-        // Prompt spesifik berdasarkan proposal: 4 kategori utama
-        $prompt = "Kamu adalah chatbot GenBI Cirebon. Jawab hanya soal: 1) Info beasiswa Bank Indonesia, 2) Prosedur keanggotaan GenBI, 3) Tentang Bank Indonesia, 4) FAQ komunitas. Jawab akurat, ramah, dalam bahasa Indonesia. Jika pertanyaan di luar topik, arahkan kembali ke topik GenBI.
-
-User: $text
-
-Kembalikan dalam JSON: 
-{
-  \"answer\": \"Jawaban lengkap dan relevan\",
-  \"suggests\": [\"Suggest 1?\", \"Suggest 2?\", \"Suggest 3?\"]  // 2-3 pertanyaan lanjutan relevan
-}";
-
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $apiKey,
-            'Content-Type'  => 'application/json',
-            'HTTP-Referer'  => 'https://genbicirebon.org/',
-            'X-Title'       => 'Genbi Cirebon Chatbot',
-        ])->post('https://openrouter.ai/api/v1/chat/completions', [
-            "model" => "mistralai/mistral-7b-instruct",
-            "messages" => [["role" => "system", "content" => $prompt]],
-            "temperature" => 0.7
-        ]);
-
-        if ($response->successful()) {
-            return $response->json()['choices'][0]['message']['content'] ?? '{"answer": "Maaf, pertanyaan di luar topik GenBI. Coba tanya soal beasiswa?", "suggests": []}';
+            return [
+                'text' => $queryResult->getFulfillmentText(),
+                'is_fallback' => $queryResult->getIntent()->getIsFallback(),
+            ];
+        } catch (\Exception $e) {
+            Log::error("Dialogflow Error: " . $e->getMessage());
+            return null;
         }
-
-        Log::error('Fallback AI error: ' . json_encode($response->json()));
-        return '{"answer": "Maaf, saya tidak bisa menjawab saat ini.", "suggests": []}';
     }
 
-    // Helper untuk tentukan category berdasarkan keyword sederhana
-    private function determineCategory(string $message): string
+    private function fallbackWithOpenAI(string $text, bool $suggestionsOnly = false)
     {
-        $lowerMessage = strtolower($message);
-        if (strpos($lowerMessage, 'beasiswa') !== false) return 'beasiswa';
-        if (strpos($lowerMessage, 'keanggotaan') !== false || strpos($lowerMessage, 'daftar') !== false) return 'keanggotaan';
-        if (strpos($lowerMessage, 'bank indonesia') !== false) return 'bank_indonesia';
-        return 'faq'; // Default
-    }
-
-    // Method fallbackTest tetap untuk testing
-    public function fallbackTest(Request $request)
-    {
-        // Kode testing sama seperti sebelumnya
         $apiKey = env('OPENROUTER_API_KEY');
-        $userMessage = "Halo, apa kabar?";
+        $siteContext = "GenBI (Generasi Baru Indonesia) Cirebon adalah komunitas penerima beasiswa Bank Indonesia. Website resminya adalah genbicirebon.com. Fokusnya adalah informasi beasiswa, kegiatan pengembangan diri anggota (seperti workshop, seminar), program sosial (seperti mengajar, bakti sosial), dan berita terbaru seputar komunitas. Jawab dengan bahasa Indonesia yang santai tapi profesional.";
 
-        $response = Http::withHeaders([
-            'Authorization' => "Bearer {$apiKey}",
-            'Content-Type'  => 'application/json',
-            'HTTP-Referer'  => 'https://genbicirebon.org/',
-            'X-Title'       => 'Laravel Chatbot Test',
-        ])->post('https://openrouter.ai/api/v1/chat/completions', [
-            'model' => 'openai/gpt-3.5-turbo',
-            'messages' => [
-                ['role' => 'system', 'content' => 'You are a helpful assistant.'],
-                ['role' => 'user', 'content' => $userMessage],
-            ],
-        ]);
+        $promptAction = $suggestionsOnly
+            ? "HANYA berikan 3 saran pertanyaan lanjutan singkat yang relevan dengan pertanyaan pengguna. JANGAN jawab pertanyaan pengguna."
+            : "Jawab pertanyaan pengguna secara ringkas dan informatif berdasarkan konteks. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan dan singkat (maksimal 4 kata per saran).";
 
-        if ($response->successful()) {
-            return $response->json();
-        } else {
-            return ['error' => ['status' => $response->status(), 'body' => $response->json()]];
+        $systemPrompt = "Kamu adalah 'GenBI Assistant', asisten AI ramah dan ahli tentang GenBI Cirebon. Konteksmu adalah: {$siteContext}. {$promptAction} Format respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. Jika hanya diminta saran, isi 'answer' dengan string kosong.";
+
+        try {
+            $response = Http::timeout(30)->withHeaders([
+                'Authorization' => 'Bearer ' . $apiKey,
+                'Content-Type'  => 'application/json',
+                'HTTP-Referer'  => request()->getSchemeAndHttpHost(),
+                'X-Title'       => 'Genbi Cirebon Chatbot',
+            ])->post('https://openrouter.ai/api/v1/chat/completions', [
+                "model" => "openai/gpt-3.5-turbo",
+                "messages" => [
+                    ["role" => "system", "content" => $systemPrompt],
+                    ["role" => "user", "content" => $text]
+                ],
+                "response_format" => ["type" => "json_object"],
+                "temperature" => 0.5,
+                "max_tokens" => 300,
+            ]);
+
+            if ($response->successful()) {
+                $data = $response->json()['choices'][0]['message']['content'];
+                $decodedData = json_decode($data, true);
+                // Pastikan formatnya benar sebelum dikembalikan
+                return [
+                    'answer' => $decodedData['answer'] ?? ($suggestionsOnly ? '' : 'Gagal memformat jawaban.'),
+                    'suggestions' => $decodedData['suggestions'] ?? [],
+                ];
+            }
+
+            Log::error('OpenAI Fallback HTTP Error: ' . $response->body());
+            return ['answer' => 'Maaf, saya sedang mengalami kendala teknis (API).', 'suggestions' => []];
+        } catch (\Exception $e) {
+            Log::error('OpenAI Fallback Exception: ' . $e->getMessage());
+            return ['answer' => 'Maaf, koneksi ke asisten AI sedang bermasalah.', 'suggestions' => []];
         }
     }
 }

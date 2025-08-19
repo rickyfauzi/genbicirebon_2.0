@@ -143,6 +143,11 @@
             border-radius: 20px 20px 0 0;
         }
 
+        .chat-header h5 {
+            color: white;
+
+        }
+
         .chat-header-info {
             display: flex;
             align-items: center;
@@ -160,7 +165,6 @@
             margin: 0;
             font-weight: 600;
             font-size: 16px;
-            color: white;
         }
 
         .chat-status {
@@ -288,8 +292,6 @@
             margin-right: 12px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
             border: 1px solid rgba(0, 0, 0, 0.05);
-            position: relative;
-            overflow: hidden;
         }
 
         /* Avatar Styles */
@@ -371,8 +373,6 @@
             flex-wrap: wrap;
             gap: 8px;
             margin-top: 12px;
-            padding-top: 8px;
-            border-top: 1px solid #e5e7eb;
         }
 
         .quick-reply {
@@ -617,286 +617,238 @@
 
     <script>
         $(document).ready(function() {
-            // Setup CSRF Token untuk semua request AJAX
-            $.ajaxSetup({
-                headers: {
-                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                }
-            });
+            // =================================================================
+            // CHATBOT LOGIC
+            // =================================================================
+            const chatInput = $('#chat-input');
+            const sendBtn = $('#send-btn');
+            const messagesContainer = $('#chat-messages');
+            const quickRepliesContainer = $('#quick-replies-container'); // Container khusus sugesti
+            const welcomeMessage = $('.welcome-message');
 
-            // Hide loading spinner when page is ready
-            $('#loading-spinner').fadeOut();
+            const sessionId = 'webchat-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+            let isTyping = false;
+            let chatInitialized = false;
 
-            // Initialize chat
-            initializeChat();
-        });
+            // Event listener for send button click
+            $('#send-btn').on('click', sendChat);
 
-        // Chat variables
-        let isTyping = false;
-        let chatInitialized = false;
-        const sessionId = 'genbi-' + Math.random().toString(36).substring(2, 15);
-
-        // Initialize chat functionality
-        function initializeChat() {
-            // Event listener for Enter key in input
-            $('#chat-input').on('keypress', function(e) {
+            // Event listener for Enter key press in the input field
+            chatInput.on('keypress', function(e) {
                 if (e.which === 13 && !e.shiftKey) {
                     e.preventDefault();
                     sendChat();
                 }
             });
 
-            // Auto-focus input when typing
-            $(document).on('keydown', function(e) {
-                if (!$('#chat-window').is(':visible')) return;
-                if (e.target.tagName.toLowerCase() !== 'input' && e.target.tagName.toLowerCase() !== 'textarea') {
-                    $('#chat-input').focus();
+            // Toggle chat window visibility
+            window.toggleChat = function() {
+                const chatWindow = $('#chat-window');
+                chatWindow.toggleClass('show');
+
+                if (chatWindow.hasClass('show')) {
+                    chatInput.focus();
+                    if (!chatInitialized) {
+                        setTimeout(() => {
+                            showWelcomeSequence();
+                            chatInitialized = true;
+                        }, 500);
+                    }
                 }
-            });
-        }
+            };
 
-        // Toggle chat window
-        function toggleChat() {
-            const chatWindow = $('#chat-window');
-            const isVisible = chatWindow.is(':visible');
-
-            if (isVisible) {
-                chatWindow.removeClass('show').fadeOut(300);
-            } else {
-                chatWindow.addClass('show').fadeIn(300);
-                $('#chat-input').focus();
-
-                // Send welcome message if first time
-                if (!chatInitialized) {
+            // Show the initial welcome message and suggestions
+            function showWelcomeSequence() {
+                welcomeMessage.fadeOut(300, function() {
+                    $(this).remove(); // Hapus pesan selamat datang statis
+                    const initialSuggestions = ["Apa itu GenBI?", "Syarat Beasiswa", "Program Unggulan"];
+                    // Munculkan pesan selamat datang dinamis dan sugesti
+                    appendMessage(
+                        "Halo! Saya GenBI Assistant. Ada yang bisa saya bantu tentang program GenBI Cirebon?",
+                        'bot');
                     setTimeout(() => {
-                        showWelcomeMessage();
-                        chatInitialized = true;
-                    }, 2000);
-                }
+                        showDynamicSuggestions(initialSuggestions);
+                    }, 500);
+                });
             }
-        }
 
-        // Show welcome message with initial quick replies
-        function showWelcomeMessage() {
-            $('.welcome-message').fadeOut(300, function() {
-                appendMessage(
-                    "Halo! Saya GenBI Assistant. Ada yang bisa saya bantu tentang program GenBI Cirebon?",
-                    'bot',
-                    true
-                );
-                setTimeout(() => {
-                    showQuickReplies([
-                        "Apa itu GenBI?",
-                        "Syarat beasiswa GenBI",
-                        "Program unggulan",
-                        "Cara mendaftar"
-                    ]);
-                }, 1000);
-            });
-        }
+            // Main function to send a message via AJAX
+            function sendChat() {
+                const message = chatInput.val().trim();
+                if (!message || isTyping) return;
 
-        // Send message function
-        function sendChat() {
-            const input = $('#chat-input');
-            const message = input.val().trim();
-            const sendBtn = $('#send-btn');
+                $('.quick-replies').remove(); // Clear previous suggestions
+                chatInput.val('');
+                sendBtn.prop('disabled', true);
+                isTyping = true;
 
-            if (!message || isTyping) return;
+                appendMessage(message, 'user');
+                showTypingIndicator();
 
-            // Clear input and disable send button
-            input.val('');
-            sendBtn.prop('disabled', true);
-
-            // Show user message
-            appendMessage(message, 'user');
-
-            // Show typing indicator
-            showTypingIndicator();
-
-            // Send to server
-            $.ajax({
-                url: "{{ route('chatbot.sendMessage') }}",
-                type: 'POST',
-                data: {
-                    message: message,
-                    session_id: sessionId
-                },
-                timeout: 10000,
-                success: function(response) {
-                    hideTypingIndicator();
-                    if (response && typeof response.message === 'string' && response.message.trim().length >
-                        0) {
-                        appendMessage(response.message, 'bot');
-                        if (response.suggests && Array.isArray(response.suggests) && response.suggests.length >
-                            0) {
-                            showQuickReplies(response.suggests);
+                $.ajax({
+                    url: "{{ route('chatbot.sendMessage') }}",
+                    type: 'POST',
+                    data: {
+                        _token: $('meta[name="csrf-token"]').attr('content'),
+                        message: message,
+                        session_id: sessionId
+                    },
+                    timeout: 30000, // 30 seconds for potential AI response
+                    success: function(response) {
+                        hideTypingIndicator();
+                        if (response && response.message) {
+                            appendMessage(response.message, 'bot');
+                            if (response.suggestions && response.suggestions.length > 0) {
+                                setTimeout(() => {
+                                    showDynamicSuggestions(response.suggestions);
+                                }, 500);
+                            }
                         } else {
-                            showQuickReplies(["Info lebih lanjut", "Hubungi admin", "FAQ lainnya"]);
+                            appendMessage("Maaf, terjadi kesalahan saat memproses pesan Anda.", 'bot');
                         }
-                    } else {
-                        appendMessage("Maaf, saya tidak mengerti pesan Anda. Coba ajukan pertanyaan lain.",
+                    },
+                    error: function(xhr, status, error) {
+                        hideTypingIndicator();
+                        console.error("Chat AJAX Error:", status, error);
+                        appendMessage("Maaf, koneksi ke server sedang bermasalah. Coba lagi nanti.",
                             'bot');
+                    },
+                    complete: function() {
+                        sendBtn.prop('disabled', false);
+                        isTyping = false;
+                        chatInput.focus();
                     }
-                },
-                error: function(xhr, status, error) {
-                    hideTypingIndicator();
-                    console.error('Chat Error:', error);
-
-                    let errorMessage = "Maaf, terjadi kesalahan saat menghubungi server.";
-                    if (status === 'timeout') {
-                        errorMessage = "Koneksi timeout. Silakan coba lagi.";
-                    } else if (xhr.status === 429) {
-                        errorMessage = "Terlalu banyak pesan. Silakan tunggu sebentar.";
-                    } else if (xhr.status === 500) {
-                        errorMessage = "Terjadi kesalahan server. Tim kami sedang memperbaikinya.";
-                    } else if (xhr.status === 400 || xhr.status === 404) {
-                        errorMessage = "Permintaan tidak valid. Coba lagi.";
-                    }
-
-                    appendMessage(errorMessage, 'bot');
-                },
-                complete: function() {
-                    sendBtn.prop('disabled', false);
-                    input.focus();
-                }
-            });
-        }
-
-        // Append message to chat
-        function appendMessage(text, sender, isWelcome = false) {
-            const messagesContainer = $('#chat-messages');
-            const timestamp = new Date().toLocaleTimeString('id-ID', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-
-            let messageHTML = '';
-            if (sender === 'user') {
-                messageHTML = `
-                    <div class="msg-row msg-user">
-                        <div class="msg-bubble user">
-                            ${escapeHtml(text)}
-                            <div style="font-size: 11px; opacity: 0.7; margin-top: 4px;">${timestamp}</div>
-                        </div>
-                        <div class="chat-avatar user">U</div>
-                    </div>
-                `;
-            } else {
-                messageHTML = `
-                    <div class="msg-row msg-bot">
-                        <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
-                        <div class="msg-bubble bot">
-                            ${escapeHtml(text)}
-                            <div style="font-size: 11px; opacity: 0.5; margin-top: 4px;">${timestamp}</div>
-                        </div>
-                    </div>
-                `;
+                });
             }
 
-            messagesContainer.append(messageHTML);
-            scrollToBottom();
-        }
+            // Function to add a message bubble to the chat window
+            function appendMessage(text, sender) {
+                const userAvatarHtml = `<div class="chat-avatar user">U</div>`;
+                const botAvatarHtml =
+                    `<img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">`;
 
-        // Show typing indicator
-        function showTypingIndicator() {
-            if (isTyping) return;
+                const messageHtml = `
+                    <div class="msg-row ${sender === 'user' ? 'msg-user' : 'msg-bot'}">
+                        ${sender === 'user' ? '' : botAvatarHtml}
+                        <div class="msg-bubble ${sender}">
+                            ${formatText(text)}
+                        </div>
+                        ${sender === 'user' ? userAvatarHtml : ''}
+                    </div>
+                `;
+                messagesContainer.append(messageHtml);
+                scrollToBottom();
+            }
 
-            isTyping = true;
-            const typingHTML = `
-                <div class="msg-row msg-bot" id="typing-indicator">
-                    <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
-                    <div class="msg-bubble bot typing-indicator">
-                        <div class="typing-dots">
-                            <div class="typing-dot"></div>
-                            <div class="typing-dot"></div>
-                            <div class="typing-dot"></div>
+            // Display the "typing..." indicator
+            function showTypingIndicator() {
+                const typingHtml = `
+                    <div class="msg-row msg-bot" id="typing-indicator">
+                        <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
+                        <div class="msg-bubble bot typing-indicator">
+                            <div class="typing-dots">
+                                <div class="typing-dot"></div>
+                                <div class="typing-dot"></div>
+                                <div class="typing-dot"></div>
+                            </div>
                         </div>
                     </div>
-                </div>
-            `;
+                `;
+                messagesContainer.append(typingHtml);
+                scrollToBottom();
+            }
 
-            $('#chat-messages').append(typingHTML);
-            scrollToBottom();
-        }
+            // Remove the typing indicator
+            function hideTypingIndicator() {
+                $('#typing-indicator').remove();
+            }
 
-        // Hide typing indicator
-        function hideTypingIndicator() {
-            isTyping = false;
-            $('#typing-indicator').remove();
-        }
-
-        // Show quick replies
-        function showQuickReplies(replies) {
-            const lastBotMessage = $('#chat-messages .msg-row.msg-bot:last-child .msg-bubble.bot');
-            if (lastBotMessage.length > 0) {
-                const quickRepliesHTML = `
+            // Display dynamic suggestion buttons
+            window.showDynamicSuggestions = function(suggestions) {
+                const suggestionsHtml = `
                     <div class="quick-replies">
-                        ${replies.map(reply =>
-                            `<button class="quick-reply" onclick="handleQuickReply('${escapeHtml(reply)}')">${reply}</button>`
+                        ${suggestions.map(reply =>
+                            `<button class="quick-reply" onclick="handleQuickReply('${escapeHtml(reply)}')">${escapeHtml(reply)}</button>`
                         ).join('')}
                     </div>
                 `;
-                lastBotMessage.append(quickRepliesHTML);
+                const lastMessageBubble = messagesContainer.find('.msg-row.msg-bot:last .msg-bubble');
+                if (lastMessageBubble.length) {
+                    lastMessageBubble.append(suggestionsHtml);
+                } else {
+                    messagesContainer.append(suggestionsHtml);
+                }
                 scrollToBottom();
             }
-        }
 
-        // Handle quick reply click
-        function handleQuickReply(text) {
-            $('#chat-input').val(text);
-            sendChat();
-
-            // Remove quick replies after selection
-            $('.quick-replies').fadeOut(200, function() {
-                $(this).remove();
-            });
-        }
-
-        // Scroll to bottom of messages
-        function scrollToBottom() {
-            const messagesContainer = $('#chat-messages');
-            messagesContainer.animate({
-                scrollTop: messagesContainer[0].scrollHeight
-            }, 300);
-        }
-
-        // Escape HTML to prevent XSS
-        function escapeHtml(text) {
-            const map = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            };
-            return text.replace(/[&<>"']/g, function(m) {
-                return map[m];
-            });
-        }
-
-        // Auto-open chat after 30 seconds if not interacted
-        setTimeout(() => {
-            if (!chatInitialized && !$('#chat-window').is(':visible')) {
-                toggleChat();
+            // Handle click on a suggestion button
+            window.handleQuickReply = function(text) {
+                $('.quick-replies').fadeOut(200, function() {
+                    $(this).remove();
+                });
+                chatInput.val(text);
+                sendChat();
             }
-        }, 30000);
 
-        // Initialize other scripts
-        document.addEventListener("DOMContentLoaded", function() {
-            // Initialize AOS
+            // Utility to scroll the chat window to the bottom
+            function scrollToBottom() {
+                messagesContainer.animate({
+                    scrollTop: messagesContainer[0].scrollHeight
+                }, 400);
+            }
+
+            // Utility to prevent XSS attacks
+            function escapeHtml(text) {
+                const map = {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                };
+                return text.replace(/[&<>"']/g, m => map[m]);
+            }
+
+            // Utility to format text (newlines to <br>, URLs to <a> tags)
+            function formatText(text) {
+                let formattedText = escapeHtml(text).replace(/\n/g, '<br>');
+                const urlRegex = /(https?:\/\/[^\s]+)/g;
+                return formattedText.replace(urlRegex,
+                    '<a href="$1" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">$1</a>'
+                    );
+            }
+
+            // =================================================================
+            // OTHER WEBSITE SCRIPTS INITIALIZATION
+            // =================================================================
+
+            // Hide loading spinner when the entire page is ready
+            $('#loading-spinner').fadeOut('slow');
+
+            // Setup CSRF Token for all subsequent AJAX requests
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+
+            // Initialize AOS (Animate on Scroll)
             if (typeof AOS !== 'undefined') {
-                AOS.init();
+                AOS.init({
+                    duration: 800,
+                    once: true
+                });
             }
 
-            // Initialize WOW
+            // Initialize WOW.js for animations
             if (typeof WOW !== 'undefined') {
                 new WOW().init();
             }
 
-            // Initialize Typed.js if elements exist
+            // Initialize Typed.js for typing text effect
             if ($('.typed-text-output').length) {
                 const typedStrings = $('.typed-text').text();
-                const typed = new Typed('.typed-text-output', {
+                new Typed('.typed-text-output', {
                     strings: typedStrings.split(','),
                     typeSpeed: 100,
                     backSpeed: 20,
@@ -905,7 +857,7 @@
                 });
             }
 
-            // Magnific Popup for image galleries
+            // Initialize Magnific Popup for image galleries
             if (typeof $.fn.magnificPopup !== 'undefined') {
                 $('.popup-image').magnificPopup({
                     type: 'image',
@@ -919,22 +871,20 @@
 
             // Smooth scrolling for anchor links
             $('a[href*="#"]').not('[href="#"]').not('[href="#0"]').click(function(event) {
-                if (
-                    location.pathname.replace(/^\//, '') == this.pathname.replace(/^\//, '') &&
-                    location.hostname == this.hostname
-                ) {
+                if (location.pathname.replace(/^\//, '') == this.pathname.replace(/^\//, '') && location
+                    .hostname == this.hostname) {
                     let target = $(this.hash);
                     target = target.length ? target : $('[name=' + this.hash.slice(1) + ']');
                     if (target.length) {
                         event.preventDefault();
                         $('html, body').animate({
                             scrollTop: target.offset().top - 100
-                        }, 1000, 'easeInOutExpo');
+                        }, 1000);
                     }
                 }
             });
 
-            // Back to top button
+            // Back to top button logic
             $(window).scroll(function() {
                 if ($(this).scrollTop() > 300) {
                     $('.back-to-top').fadeIn('slow');
@@ -942,11 +892,10 @@
                     $('.back-to-top').fadeOut('slow');
                 }
             });
-
             $('.back-to-top').click(function() {
                 $('html, body').animate({
                     scrollTop: 0
-                }, 1500, 'easeInOutExpo');
+                }, 1500);
                 return false;
             });
 
@@ -954,153 +903,24 @@
             $('.navbar-toggler').click(function() {
                 $('.navbar-collapse').slideToggle(300);
             });
-
-            // Close mobile menu when clicking on a link
             $('.navbar-nav a').click(function() {
                 if ($('.navbar-toggler').is(':visible')) {
                     $('.navbar-collapse').slideUp(300);
                 }
             });
 
-            // Prevent dropdown from closing when clicking inside
-            $('.dropdown-menu').click(function(e) {
-                e.stopPropagation();
-            });
-
-            // Initialize tooltips
+            // Initialize Bootstrap tooltips
             if (typeof $.fn.tooltip !== 'undefined') {
                 $('[data-bs-toggle="tooltip"]').tooltip();
             }
 
-            // Initialize popovers
-            if (typeof $.fn.popover !== 'undefined') {
-                $('[data-bs-toggle="popover"]').popover();
-            }
-        });
-
-        // Cookie consent banner
-        function checkCookieConsent() {
-            if (!localStorage.getItem('cookieConsent')) {
-                $('#cookie-consent').removeClass('d-none');
-            }
-        }
-
-        function acceptCookies() {
-            localStorage.setItem('cookieConsent', 'accepted');
-            $('#cookie-consent').fadeOut();
-        }
-
-        // Check cookie consent on page load
-        $(window).on('load', function() {
-            checkCookieConsent();
-        });
-
-        // Form validation example
-        function validateForm(formId) {
-            const form = document.getElementById(formId);
-            if (!form) return false;
-
-            let isValid = true;
-            const inputs = form.querySelectorAll('input[required], textarea[required], select[required]');
-
-            inputs.forEach(input => {
-                if (!input.value.trim()) {
-                    input.classList.add('is-invalid');
-                    isValid = false;
-                } else {
-                    input.classList.remove('is-invalid');
+            // Auto-open chat after 30 seconds if it hasn't been opened
+            setTimeout(() => {
+                if (!chatInitialized && !$('#chat-window').hasClass('show')) {
+                    toggleChat();
                 }
-            });
-
-            return isValid;
-        }
-
-        // Example of form submission handler
-        $('form.needs-validation').on('submit', function(e) {
-            e.preventDefault();
-            if (validateForm(this.id)) {
-                // Form is valid, proceed with submission
-                this.submit();
-            }
+            }, 30000);
         });
-
-        // Remove validation classes when user starts typing
-        $('input, textarea, select').on('input change', function() {
-            if (this.value.trim()) {
-                $(this).removeClass('is-invalid');
-            }
-        });
-
-        // Lazy loading for images
-        if ('loading' in HTMLImageElement.prototype) {
-            const images = document.querySelectorAll('img[loading="lazy"]');
-            images.forEach(img => {
-                img.src = img.dataset.src;
-            });
-        } else {
-            const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/lazysizes/5.3.2/lazysizes.min.js';
-            script.async = true;
-            document.body.appendChild(script);
-        }
-
-        // Handle video modal
-        $('.video-btn').click(function() {
-            const videoSrc = $(this).data('src');
-            $('#videoModal iframe').attr('src', videoSrc + '?autoplay=1');
-        });
-
-        $('#videoModal').on('hidden.bs.modal', function() {
-            $('#videoModal iframe').attr('src', '');
-        });
-
-        // CountUp animation for stats
-        function animateStats() {
-            $('.counter').each(function() {
-                $(this).prop('Counter', 0).animate({
-                    Counter: $(this).text()
-                }, {
-                    duration: 2000,
-                    easing: 'swing',
-                    step: function(now) {
-                        $(this).text(Math.ceil(now));
-                    }
-                });
-            });
-        }
-
-        // Initialize stats animation when scrolled to
-        $(window).scroll(function() {
-            if ($('.counter').length && $(window).scrollTop() > $('.counter').offset().top - 500) {
-                animateStats();
-                $(window).off('scroll');
-            }
-        });
-
-        // Initialize light/dark mode toggle
-        function initTheme() {
-            const themeToggle = $('#theme-toggle');
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            const storedTheme = localStorage.getItem('theme');
-
-            let theme = storedTheme || (prefersDark ? 'dark' : 'light');
-            setTheme(theme);
-
-            themeToggle.click(function() {
-                theme = theme === 'dark' ? 'light' : 'dark';
-                setTheme(theme);
-                localStorage.setItem('theme', theme);
-            });
-
-            function setTheme(theme) {
-                document.documentElement.setAttribute('data-bs-theme', theme);
-                themeToggle.find('i').toggleClass('fa-sun fa-moon');
-            }
-        }
-
-        if ($('#theme-toggle').length) {
-            initTheme();
-        }
     </script>
 </body>
 
