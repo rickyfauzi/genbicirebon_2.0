@@ -677,7 +677,7 @@
             }
         }
 
-        // Show welcome message with quick replies
+        // Show welcome message with initial quick replies from server or static
         function showWelcomeMessage() {
             $('.welcome-message').fadeOut(300, function() {
                 appendMessage(
@@ -686,13 +686,14 @@
                     true
                 );
 
+                // Untuk welcome, bisa fetch suggests dari server atau static
                 setTimeout(() => {
                     showQuickReplies([
                         "Apa itu GenBI?",
                         "Syarat beasiswa GenBI",
                         "Program unggulan",
                         "Cara mendaftar"
-                    ]);
+                    ]); // Static untuk welcome, selanjutnya dari OpenAI
                 }, 1000);
             });
         }
@@ -730,10 +731,13 @@
                     if (response && response.message) {
                         appendMessage(response.message, 'bot');
 
-                        // Show contextual quick replies
-                        setTimeout(() => {
-                            showContextualQuickReplies(message, response.message);
-                        }, 500);
+                        // Tampilkan suggests dari OpenAI jika ada
+                        if (response.suggests && response.suggests.length > 0) {
+                            showQuickReplies(response.suggests);
+                        } else {
+                            // Fallback jika tidak ada suggests dari server
+                            showQuickReplies(["Info lebih lanjut", "Hubungi admin", "FAQ lainnya"]);
+                        }
                     } else {
                         appendMessage("Maaf, saya tidak dapat memproses pesan Anda saat ini.", 'bot');
                     }
@@ -837,29 +841,6 @@
 
             $('#chat-messages .msg-row:last-child .msg-bubble').append(quickRepliesHTML);
             scrollToBottom();
-        }
-
-        // Show contextual quick replies based on conversation
-        function showContextualQuickReplies(userMessage, botResponse) {
-            const message = userMessage.toLowerCase();
-            let replies = [];
-
-            if (message.includes('genbi') || message.includes('apa itu')) {
-                replies = ["Syarat beasiswa", "Program unggulan", "Cara mendaftar"];
-            } else if (message.includes('syarat') || message.includes('persyaratan')) {
-                replies = ["Dokumen yang dibutuhkan", "Timeline pendaftaran", "Tips lolos seleksi"];
-            } else if (message.includes('program') || message.includes('kegiatan')) {
-                replies = ["Program sosial", "Program edukasi", "Event mendatang"];
-            } else if (message.includes('daftar') || message.includes('mendaftar')) {
-                replies = ["Syarat pendaftaran", "Link pendaftaran", "Kontak admin"];
-            } else {
-                // Default replies
-                replies = ["Info lebih lanjut", "Hubungi admin", "FAQ lainnya"];
-            }
-
-            if (replies.length > 0) {
-                showQuickReplies(replies);
-            }
         }
 
         // Handle quick reply click

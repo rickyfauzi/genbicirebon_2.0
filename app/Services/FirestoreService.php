@@ -26,7 +26,7 @@ class FirestoreService
             'session_id' => $sessionId,
             'question'   => $question,
             'answer'     => $answer,
-            'source'     => $source, // "dialogflow" | "openai"
+            'source'     => $source, // "dialogflow" | "firebase" | "openai"
             'timestamp'  => new Timestamp(new \DateTime()),
             'user_id'    => $userId,
         ]);
@@ -51,21 +51,47 @@ class FirestoreService
     public function updateSystemMetrics(string $date, array $updates)
     {
         $docRef = $this->db->collection('system_metrics')->document($date);
-
-        // gunakan merge untuk update parsial
         return $docRef->set($updates, ['merge' => true]);
     }
 
     /**
-     * Tambahkan knowledge base baru
+     * Tambah knowledge base baru dari fallback OpenAI
      */
-    public function addKnowledgeBase(string $question, string $answer, string $category = null)
+    public function addKnowledgeBase(string $question, string $answer, string $category = 'general')
     {
         return $this->db->collection('knowledge_base')->add([
             'question'   => $question,
             'answer'     => $answer,
-            'category'   => $category,
-            'created_at' => new Timestamp(new \DateTime()),
+            'category'   => $category, // Berdasarkan 4 kategori dari proposal: beasiswa, keanggotaan, bank_indonesia, faq
+            'timestamp'  => new Timestamp(new \DateTime()),
         ]);
+    }
+
+    /**
+     * Cari jawaban serupa di knowledge_base berdasarkan similarity
+     * Menggunakan Levenshtein distance untuk similarity sederhana
+     */
+    public function searchKnowledgeBase(string $query, float $threshold = 80.0)
+    {
+        $collection = $this->db->collection('knowledge_base');
+        $documents = $collection->documents();
+
+        $bestMatch = null;
+        $bestSimilarity = 0;
+
+        foreach ($documents as $doc) {
+            $data = $doc->data();
+            $question = $data['question'] ?? '';
+
+            // Hitung similarity (persentase)
+            similar_text(strtolower($query), strtolower($question), $percent);
+
+            if ($percent > $bestSimilarity && $percent >= $threshold) {
+                $bestSimilarity = $percent;
+                $bestMatch = $data['answer'];
+            }
+        }
+
+        return $bestMatch;
     }
 }
