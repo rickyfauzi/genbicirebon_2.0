@@ -381,7 +381,7 @@
             color: #475569;
             border-radius: 20px;
             padding: 8px 16px;
-            font-size: 13px;
+            font-size: 8px;
             cursor: pointer;
             transition: all 0.2s;
             white-space: nowrap;
@@ -815,7 +815,7 @@
                 const urlRegex = /(https?:\/\/[^\s]+)/g;
                 return formattedText.replace(urlRegex,
                     '<a href="$1" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">$1</a>'
-                    );
+                );
             }
 
             // =================================================================
