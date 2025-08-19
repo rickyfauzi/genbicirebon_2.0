@@ -143,11 +143,6 @@
             border-radius: 20px 20px 0 0;
         }
 
-        .chat-header h5 {
-            color: white;
-
-        }
-
         .chat-header-info {
             display: flex;
             align-items: center;
@@ -165,6 +160,7 @@
             margin: 0;
             font-weight: 600;
             font-size: 16px;
+            color: white;
         }
 
         .chat-status {
@@ -292,6 +288,8 @@
             margin-right: 12px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
             border: 1px solid rgba(0, 0, 0, 0.05);
+            position: relative;
+            overflow: hidden;
         }
 
         /* Avatar Styles */
@@ -373,6 +371,8 @@
             flex-wrap: wrap;
             gap: 8px;
             margin-top: 12px;
+            padding-top: 8px;
+            border-top: 1px solid #e5e7eb;
         }
 
         .quick-reply {
@@ -649,8 +649,7 @@
             // Auto-focus input when typing
             $(document).on('keydown', function(e) {
                 if (!$('#chat-window').is(':visible')) return;
-                if (e.target.tagName.toLowerCase() !== 'input' && e.target.tagName
-                    .toLowerCase() !== 'textarea') {
+                if (e.target.tagName.toLowerCase() !== 'input' && e.target.tagName.toLowerCase() !== 'textarea') {
                     $('#chat-input').focus();
                 }
             });
@@ -677,7 +676,7 @@
             }
         }
 
-        // Show welcome message with initial quick replies from server or static
+        // Show welcome message with initial quick replies
         function showWelcomeMessage() {
             $('.welcome-message').fadeOut(300, function() {
                 appendMessage(
@@ -685,15 +684,13 @@
                     'bot',
                     true
                 );
-
-                // Untuk welcome, bisa fetch suggests dari server atau static
                 setTimeout(() => {
                     showQuickReplies([
                         "Apa itu GenBI?",
                         "Syarat beasiswa GenBI",
                         "Program unggulan",
                         "Cara mendaftar"
-                    ]); // Static untuk welcome, selanjutnya dari OpenAI
+                    ]);
                 }, 1000);
             });
         }
@@ -727,19 +724,18 @@
                 timeout: 10000,
                 success: function(response) {
                     hideTypingIndicator();
-
-                    if (response && response.message) {
+                    if (response && typeof response.message === 'string' && response.message.trim().length >
+                        0) {
                         appendMessage(response.message, 'bot');
-
-                        // Tampilkan suggests dari OpenAI jika ada
-                        if (response.suggests && response.suggests.length > 0) {
+                        if (response.suggests && Array.isArray(response.suggests) && response.suggests.length >
+                            0) {
                             showQuickReplies(response.suggests);
                         } else {
-                            // Fallback jika tidak ada suggests dari server
                             showQuickReplies(["Info lebih lanjut", "Hubungi admin", "FAQ lainnya"]);
                         }
                     } else {
-                        appendMessage("Maaf, saya tidak dapat memproses pesan Anda saat ini.", 'bot');
+                        appendMessage("Maaf, saya tidak mengerti pesan Anda. Coba ajukan pertanyaan lain.",
+                            'bot');
                     }
                 },
                 error: function(xhr, status, error) {
@@ -747,13 +743,14 @@
                     console.error('Chat Error:', error);
 
                     let errorMessage = "Maaf, terjadi kesalahan saat menghubungi server.";
-
                     if (status === 'timeout') {
                         errorMessage = "Koneksi timeout. Silakan coba lagi.";
                     } else if (xhr.status === 429) {
                         errorMessage = "Terlalu banyak pesan. Silakan tunggu sebentar.";
                     } else if (xhr.status === 500) {
                         errorMessage = "Terjadi kesalahan server. Tim kami sedang memperbaikinya.";
+                    } else if (xhr.status === 400 || xhr.status === 404) {
+                        errorMessage = "Permintaan tidak valid. Coba lagi.";
                     }
 
                     appendMessage(errorMessage, 'bot');
@@ -774,7 +771,6 @@
             });
 
             let messageHTML = '';
-
             if (sender === 'user') {
                 messageHTML = `
                     <div class="msg-row msg-user">
@@ -790,7 +786,7 @@
                     <div class="msg-row msg-bot">
                         <img src="{{ asset('assets2/images/logo.png') }}" alt="GenBI" class="chat-avatar bot">
                         <div class="msg-bubble bot">
-                            ${text}
+                            ${escapeHtml(text)}
                             <div style="font-size: 11px; opacity: 0.5; margin-top: 4px;">${timestamp}</div>
                         </div>
                     </div>
@@ -831,16 +827,18 @@
 
         // Show quick replies
         function showQuickReplies(replies) {
-            const quickRepliesHTML = `
-                <div class="quick-replies">
-                    ${replies.map(reply =>
-                        `<button class="quick-reply" onclick="handleQuickReply('${escapeHtml(reply)}')">${reply}</button>`
-                    ).join('')}
-                </div>
-            `;
-
-            $('#chat-messages .msg-row:last-child .msg-bubble').append(quickRepliesHTML);
-            scrollToBottom();
+            const lastBotMessage = $('#chat-messages .msg-row.msg-bot:last-child .msg-bubble.bot');
+            if (lastBotMessage.length > 0) {
+                const quickRepliesHTML = `
+                    <div class="quick-replies">
+                        ${replies.map(reply =>
+                            `<button class="quick-reply" onclick="handleQuickReply('${escapeHtml(reply)}')">${reply}</button>`
+                        ).join('')}
+                    </div>
+                `;
+                lastBotMessage.append(quickRepliesHTML);
+                scrollToBottom();
+            }
         }
 
         // Handle quick reply click
@@ -890,7 +888,6 @@
                 AOS.init();
             }
 
-            // Initialize WOW
             // Initialize WOW
             if (typeof WOW !== 'undefined') {
                 new WOW().init();
@@ -1041,7 +1038,6 @@
                 img.src = img.dataset.src;
             });
         } else {
-            // Fallback for browsers that don't support lazy loading
             const script = document.createElement('script');
             script.src = 'https://cdnjs.cloudflare.com/ajax/libs/lazysizes/5.3.2/lazysizes.min.js';
             script.async = true;
@@ -1077,7 +1073,7 @@
         $(window).scroll(function() {
             if ($('.counter').length && $(window).scrollTop() > $('.counter').offset().top - 500) {
                 animateStats();
-                $(window).off('scroll'); // Remove the handler after first trigger
+                $(window).off('scroll');
             }
         });
 
@@ -1087,11 +1083,9 @@
             const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
             const storedTheme = localStorage.getItem('theme');
 
-            // Set initial theme
             let theme = storedTheme || (prefersDark ? 'dark' : 'light');
             setTheme(theme);
 
-            // Toggle theme on button click
             themeToggle.click(function() {
                 theme = theme === 'dark' ? 'light' : 'dark';
                 setTheme(theme);
@@ -1104,7 +1098,6 @@
             }
         }
 
-        // Initialize theme toggle if element exists
         if ($('#theme-toggle').length) {
             initTheme();
         }
