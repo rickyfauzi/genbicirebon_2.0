@@ -547,6 +547,58 @@
                 transform: rotate(360deg);
             }
         }
+
+        @media (max-width: 480px) {
+            #chat-window {
+                width: calc(100vw - 20px);
+                height: calc(100vh - 100px);
+                right: 10px;
+                bottom: 90px;
+                border-radius: 15px;
+            }
+        }
+
+        /* Responsive Design for Mobile (Fullscreen) */
+        @media (max-width: 767px) {
+
+            /* Target semua perangkat mobile */
+            #chat-window {
+                width: 100vw;
+                height: 100vh;
+                max-height: 100vh;
+                /* Override max-height */
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                border-radius: 0;
+                /* Hapus border-radius untuk fullscreen */
+                z-index: 10000;
+                /* Pastikan di atas segalanya */
+            }
+
+            /* Sembunyikan tombol float saat chat window terbuka */
+            #chat-window.show+#chat-float {
+                display: none;
+            }
+
+            .chat-header {
+                border-radius: 0;
+            }
+
+            #chat-messages {
+                /* Kalkulasi tinggi secara dinamis */
+                /* Total tinggi (100vh) - tinggi header - tinggi input */
+                height: calc(100vh - 85px - 89px);
+            }
+        }
+
+        /* Sedikit penyesuaian untuk desktop */
+        @media (min-width: 768px) {
+            #chat-window.show {
+                animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+        }
     </style>
 </head>
 

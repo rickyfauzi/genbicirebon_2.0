@@ -10,6 +10,7 @@ use Google\Cloud\Dialogflow\V2\DetectIntentRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Services\FirestoreService;
+use Symfony\Component\DomCrawler\Crawler;
 
 class ChatbotController extends Controller
 {
@@ -33,45 +34,156 @@ class ChatbotController extends Controller
         $source = 'error';
 
         try {
-            // Layer 1: Coba Dialogflow
+            // Layer 1: Coba Dialogflow untuk intent dasar (sapaan, dll)
             $dialogflowResponse = $this->detectIntent($message);
 
             if ($dialogflowResponse && !empty($dialogflowResponse['text']) && !$dialogflowResponse['is_fallback']) {
                 $response['message'] = $dialogflowResponse['text'];
                 $source = 'dialogflow';
-                // Minta saran ke OpenAI berdasarkan jawaban Dialogflow
-                $openAIResult = $this->fallbackWithOpenAI($message, true); // true = suggestions only
+                $openAIResult = $this->fallbackWithOpenAI($message, null, true); // Dapatkan sugesti cerdas
                 $response['suggestions'] = $openAIResult['suggestions'] ?? [];
             } else {
-                // Layer 2: Cari di Firestore Knowledge Base
+                // Layer 2: Cari jawaban di Firestore Knowledge Base
                 $firestoreAnswer = $this->firestoreService->searchKnowledgeBase($message);
                 if ($firestoreAnswer) {
                     $response['message'] = $firestoreAnswer;
                     $source = 'firestore';
-                    // Minta saran ke OpenAI berdasarkan jawaban Firestore
-                    $openAIResult = $this->fallbackWithOpenAI($message, true);
+                    $openAIResult = $this->fallbackWithOpenAI($message, null, true); // Dapatkan sugesti cerdas
                     $response['suggestions'] = $openAIResult['suggestions'] ?? [];
                 } else {
-                    // Layer 3: Fallback ke OpenAI untuk jawaban & saran
-                    $openAIResult = $this->fallbackWithOpenAI($message);
-                    if (!empty($openAIResult['answer'])) {
+                    // Layer 3: Panggil OpenAI dengan logika cerdas
+
+                    // Cek apakah pertanyaan terkait "kegiatan" atau "berita"
+                    $contextData = null;
+                    if (preg_match('/(kegiatan|acara|event|berita|artikel|terbaru|terkini)/i', $message)) {
+                        Log::info("Mendeteksi kata kunci kegiatan/berita. Mengambil data dari website...");
+                        $contextData = $this->scrapeWebsiteForActivities();
+                    }
+
+                    $openAIResult = $this->fallbackWithOpenAI($message, $contextData);
+
+                    if (isset($openAIResult['answer']) && !empty($openAIResult['answer'])) {
                         $response['message'] = $openAIResult['answer'];
                         $response['suggestions'] = $openAIResult['suggestions'] ?? [];
                         $source = 'openai';
 
                         // Learning Loop: Simpan pengetahuan baru ke Firestore
-                        $this->firestoreService->addKnowledgeBase($message, $openAIResult['answer']);
+                        // Hanya simpan jawaban umum, bukan yang spesifik waktu (seperti berita terbaru)
+                        if ($contextData === null) {
+                            $this->firestoreService->addKnowledgeBase($message, $openAIResult['answer']);
+                            Log::info("Knowledge base umum baru ditambahkan: '{$message}'");
+                        }
+                    } else {
+                        $response['message'] = "Maaf, saya tidak dapat menemukan jawaban untuk pertanyaan itu saat ini.";
+                        $source = 'openai_fail';
                     }
                 }
             }
 
             // Simpan log percakapan
-            $this->firestoreService->addChatLog($sessionId, $message, $response['message'], $source, $userId);
+            if ($source !== 'error') {
+                $this->firestoreService->addChatLog($sessionId, $message, $response['message'], $source, $userId);
+            }
         } catch (\Exception $e) {
-            Log::error('Chatbot Controller Error: ' . $e->getMessage() . ' on line ' . $e->getLine());
+            Log::error('Chatbot Controller Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine());
         }
 
         return response()->json($response);
+    }
+
+    /**
+     * Fungsi baru untuk scraping data kegiatan dari website
+     */
+    private function scrapeWebsiteForActivities(): ?string
+    {
+        try {
+            // Target URL halaman kegiatan/berita. Pastikan URL ini benar.
+            $url = 'https://genbicirebon.org/kegiatan';
+            $response = Http::get($url);
+
+            if (!$response->successful()) {
+                Log::warning("Gagal mengakses {$url}. Status: " . $response->status());
+                return null;
+            }
+
+            $crawler = new Crawler($response->body());
+
+            // Selector CSS ini harus disesuaikan dengan struktur HTML website Anda.
+            // Inspeksi halaman web untuk menemukan selector yang tepat.
+            // Contoh ini berasumsi setiap item berita ada di dalam div dengan class '.blog-item'
+            $activities = $crawler->filter('.blog-item')->slice(0, 5)->each(function (Crawler $node) {
+                // Selector untuk judul dan tanggal juga harus disesuaikan.
+                $titleNode = $node->filter('.blog-title a');
+                $title = $titleNode->count() ? $titleNode->text('Judul tidak ditemukan') : 'Judul tidak ditemukan';
+
+                $dateNode = $node->filter('.blog-meta span')->first();
+                $date = $dateNode->count() ? $dateNode->text('Tanggal tidak ditemukan') : 'Tanggal tidak ditemukan';
+
+                return "- {$title} (dipublikasikan sekitar {$date})";
+            });
+
+            if (empty($activities)) {
+                Log::info('Tidak ada item kegiatan yang ditemukan di website menggunakan selector yang ada.');
+                return "Saat ini tidak ada informasi kegiatan terbaru yang bisa ditampilkan dari website.";
+            }
+
+            return "Berikut adalah beberapa kegiatan atau berita terbaru dari website genbicirebon.org:\n" . implode("\n", $activities);
+        } catch (\Exception $e) {
+            Log::error('Scraping Error: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    private function fallbackWithOpenAI(string $text, ?string $externalContext = null, bool $suggestionsOnly = false)
+    {
+        $apiKey = env('OPENROUTER_API_KEY');
+        $siteContext = "Kamu adalah 'GenBI Assistant', asisten AI yang ramah, informatif, dan ahli tentang GenBI Cirebon (Generasi Baru Indonesia Cirebon), sebuah komunitas penerima beasiswa Bank Indonesia. Website resmi adalah genbicirebon.org. Jawablah semua pertanyaan dalam konteks ini.";
+
+        $promptAction = "";
+        if ($suggestionsOnly) {
+            $promptAction = "Tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang relevan dengan pertanyaan pengguna. JANGAN menjawab pertanyaan pengguna.";
+        } else {
+            $promptAction = "Jawab pertanyaan pengguna secara ringkas dan informatif. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan dan sangat singkat (maksimal 4 kata per saran).";
+        }
+
+        $contextInjection = "";
+        if ($externalContext) {
+            $contextInjection = "Gunakan informasi tambahan berikut untuk menjawab pertanyaan pengguna secara akurat:\n---INFO TAMBAHAN---\n{$externalContext}\n-------------------\n";
+        }
+
+        $systemPrompt = "{$siteContext} {$contextInjection} {$promptAction} Format respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. Jika hanya diminta saran, isi field 'answer' dengan string kosong.";
+
+        try {
+            $response = Http::timeout(45)->withHeaders([
+                'Authorization' => 'Bearer ' . $apiKey,
+                'Content-Type' => 'application/json',
+                'HTTP-Referer'  => request()->getSchemeAndHttpHost(),
+                'X-Title'       => 'Genbi Cirebon Chatbot',
+            ])->post('https://openrouter.ai/api/v1/chat/completions', [
+                "model" => "openai/gpt-3.5-turbo",
+                "messages" => [
+                    ["role" => "system", "content" => $systemPrompt],
+                    ["role" => "user", "content" => $text]
+                ],
+                "response_format" => ["type" => "json_object"],
+                "temperature" => 0.4,
+                "max_tokens" => 500,
+            ]);
+
+            if ($response->successful()) {
+                $data = json_decode($response->json()['choices'][0]['message']['content'], true);
+                return [
+                    'answer' => $data['answer'] ?? ($suggestionsOnly ? '' : 'Gagal memformat jawaban.'),
+                    'suggestions' => $data['suggestions'] ?? [],
+                ];
+            }
+
+            Log::error('OpenAI Fallback HTTP Error: ' . $response->body());
+            return ['answer' => 'Maaf, saya sedang mengalami kendala teknis (API).', 'suggestions' => []];
+        } catch (\Exception $e) {
+            Log::error('OpenAI Fallback Exception: ' . $e->getMessage());
+            return ['answer' => 'Maaf, koneksi ke asisten AI sedang bermasalah.', 'suggestions' => []];
+        }
     }
 
     private function detectIntent(string $text)
@@ -103,52 +215,6 @@ class ChatbotController extends Controller
         } catch (\Exception $e) {
             Log::error("Dialogflow Error: " . $e->getMessage());
             return null;
-        }
-    }
-
-    private function fallbackWithOpenAI(string $text, bool $suggestionsOnly = false)
-    {
-        $apiKey = env('OPENROUTER_API_KEY');
-        $siteContext = "GenBI (Generasi Baru Indonesia) Cirebon adalah komunitas penerima beasiswa Bank Indonesia. Website resminya adalah genbicirebon.com. Fokusnya adalah informasi beasiswa, kegiatan pengembangan diri anggota (seperti workshop, seminar), program sosial (seperti mengajar, bakti sosial), dan berita terbaru seputar komunitas. Jawab dengan bahasa Indonesia yang santai tapi profesional.";
-
-        $promptAction = $suggestionsOnly
-            ? "HANYA berikan 3 saran pertanyaan lanjutan singkat yang relevan dengan pertanyaan pengguna. JANGAN jawab pertanyaan pengguna."
-            : "Jawab pertanyaan pengguna secara ringkas dan informatif berdasarkan konteks. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan dan singkat (maksimal 4 kata per saran).";
-
-        $systemPrompt = "Kamu adalah 'GenBI Assistant', asisten AI ramah dan ahli tentang GenBI Cirebon. Konteksmu adalah: {$siteContext}. {$promptAction} Format respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. Jika hanya diminta saran, isi 'answer' dengan string kosong.";
-
-        try {
-            $response = Http::timeout(30)->withHeaders([
-                'Authorization' => 'Bearer ' . $apiKey,
-                'Content-Type'  => 'application/json',
-                'HTTP-Referer'  => request()->getSchemeAndHttpHost(),
-                'X-Title'       => 'Genbi Cirebon Chatbot',
-            ])->post('https://openrouter.ai/api/v1/chat/completions', [
-                "model" => "openai/gpt-3.5-turbo",
-                "messages" => [
-                    ["role" => "system", "content" => $systemPrompt],
-                    ["role" => "user", "content" => $text]
-                ],
-                "response_format" => ["type" => "json_object"],
-                "temperature" => 0.5,
-                "max_tokens" => 300,
-            ]);
-
-            if ($response->successful()) {
-                $data = $response->json()['choices'][0]['message']['content'];
-                $decodedData = json_decode($data, true);
-                // Pastikan formatnya benar sebelum dikembalikan
-                return [
-                    'answer' => $decodedData['answer'] ?? ($suggestionsOnly ? '' : 'Gagal memformat jawaban.'),
-                    'suggestions' => $decodedData['suggestions'] ?? [],
-                ];
-            }
-
-            Log::error('OpenAI Fallback HTTP Error: ' . $response->body());
-            return ['answer' => 'Maaf, saya sedang mengalami kendala teknis (API).', 'suggestions' => []];
-        } catch (\Exception $e) {
-            Log::error('OpenAI Fallback Exception: ' . $e->getMessage());
-            return ['answer' => 'Maaf, koneksi ke asisten AI sedang bermasalah.', 'suggestions' => []];
         }
     }
 }
