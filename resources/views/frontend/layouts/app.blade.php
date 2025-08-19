@@ -371,6 +371,7 @@
         .quick-replies {
             display: flex;
             flex-wrap: wrap;
+            /* Memungkinkan item pindah ke baris baru */
             gap: 8px;
             margin-top: 12px;
         }
@@ -380,11 +381,18 @@
             border: 1px solid #e2e8f0;
             color: #475569;
             border-radius: 20px;
-            padding: 8px 16px;
-            font-size: 8px;
+            padding: 8px 12px;
+            /* Sedikit lebih kecil agar pas */
+            font-size: 13px;
+            /* Ukuran font yang pas */
             cursor: pointer;
             transition: all 0.2s;
-            white-space: nowrap;
+            /* white-space: nowrap; <-- HAPUS atau ganti dengan normal */
+            white-space: normal;
+            /* Memungkinkan teks untuk wrap */
+            text-align: left;
+            /* Agar teks rata kiri jika wrap */
+            line-height: 1.3;
         }
 
         .quick-reply:hover {
