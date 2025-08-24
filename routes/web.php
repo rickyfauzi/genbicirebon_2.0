@@ -46,6 +46,8 @@ Route::get('/firestore-test', function (\App\Services\FirestoreService $firestor
 });
 
 
+
+
 /** for side bar menu active */
 function set_active($route)
 {
@@ -59,6 +61,8 @@ Route::get('chatbot', [ChatbotController::class, 'index'])->name('chatbot.index'
 
 // Rute untuk menerima pesan dari user dan mengirimkannya ke Dialogflow
 Route::post('chatbot', [ChatbotController::class, 'sendMessage'])->name('chatbot.sendMessage');
+Route::get('/test-dialogflow', [ChatbotController::class, 'testDialogflow']);
+Route::get('/test-firestore', [ChatbotController::class, 'testFirestore']);
 
 Route::get('/', [FrontendController::class, 'index'])->name('index');
 

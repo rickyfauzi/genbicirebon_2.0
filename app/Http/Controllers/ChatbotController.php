@@ -10,6 +10,7 @@ use Google\Cloud\Dialogflow\V2\DetectIntentRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Services\FirestoreService;
+use Google\Cloud\Firestore\V1\Client\FirestoreClient;
 use Symfony\Component\DomCrawler\Crawler;
 
 class ChatbotController extends Controller
@@ -211,6 +212,79 @@ class ChatbotController extends Controller
         } catch (\Exception $e) {
             Log::error("Dialogflow Error: " . $e->getMessage() . " | File: " . $e->getFile() . " | Line: " . $e->getLine());
             return null;
+        }
+    }
+
+    public function testDialogflow()
+    {
+        try {
+            $projectId = env('DIALOGFLOW_PROJECT_ID');
+            $credentialsPath = storage_path(env('DIALOGFLOW_CREDENTIALS'));
+            $sessionId = uniqid('test-');
+
+            Log::info("Menguji Dialogflow dengan project: {$projectId}, credentials: {$credentialsPath}");
+
+            $sessionsClient = new SessionsClient(['credentials' => $credentialsPath]);
+            $session = $sessionsClient->sessionName($projectId, $sessionId);
+
+            $textInput = (new TextInput())->setText('Halo')->setLanguageCode('id');
+            $queryInput = (new QueryInput())->setText($textInput);
+            $request = (new DetectIntentRequest())->setSession($session)->setQueryInput($queryInput);
+
+            $response = $sessionsClient->detectIntent($request);
+            $queryResult = $response->getQueryResult();
+            $fulfillmentText = $queryResult->getFulfillmentText();
+
+            $sessionsClient->close();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Koneksi Dialogflow berhasil!',
+                'response' => $fulfillmentText ?: 'Tidak ada respons teks dari Dialogflow.',
+            ]);
+        } catch (\Exception $e) {
+            Log::error("Dialogflow Test Error: " . $e->getMessage() . " | File: " . $e->getFile() . " | Line: " . $e->getLine());
+            $this->firestoreService->addErrorLog($e->getMessage(), 'Test Dialogflow', ['file' => $e->getFile(), 'line' => $e->getLine()]);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal menghubungkan ke Dialogflow: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Uji koneksi ke Firestore
+     */
+    public function testFirestore()
+    {
+        try {
+            $credentialsPath = base_path(env('FIREBASE_CREDENTIALS'));
+            $projectId = env('FIREBASE_PROJECT_ID');
+
+            Log::info("Menguji Firestore dengan project: {$projectId}, credentials: {$credentialsPath}");
+
+            $db = new FirestoreClient([
+                'keyFilePath' => $credentialsPath,
+                'projectId' => $projectId,
+            ]);
+
+            $testData = [
+                'test_field' => 'Test at ' . now()->toDateTimeString(),
+                'timestamp' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
+            ];
+            $docRef = $db->collection('test_collection')->add($testData);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Koneksi Firestore berhasil! Dokumen ditambahkan dengan ID: ' . $docRef->id(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error("Firestore Test Error: " . $e->getMessage() . " | File: " . $e->getFile() . " | Line: " . $e->getLine());
+            $this->firestoreService->addErrorLog($e->getMessage(), 'Test Firestore', ['file' => $e->getFile(), 'line' => $e->getLine()]);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal menghubungkan ke Firestore: ' . $e->getMessage(),
+            ], 500);
         }
     }
 }
