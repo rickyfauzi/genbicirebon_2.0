@@ -66,17 +66,63 @@ class FirestoreService
         }
     }
 
+    /**
+     * Cari jawaban dari knowledge base Firestore
+     */
+    public function searchKnowledgeBase(string $question): ?string
+    {
+        if (!$this->isConnected()) return null;
+
+        try {
+            $trimmedQuestion = trim(strtolower($question));
+
+            $query = $this->db->collection('knowledge_base')
+                ->where('question', '=', $trimmedQuestion)
+                ->limit(1)
+                ->documents();
+
+            if ($query->isEmpty()) {
+                // 🔍 Coba cari berdasarkan keywords
+                $keywords = $this->extractKeywords($trimmedQuestion);
+                if (!empty($keywords)) {
+                    $query = $this->db->collection('knowledge_base')
+                        ->where('keywords', 'array-contains-any', $keywords)
+                        ->limit(1)
+                        ->documents();
+                }
+            }
+
+            foreach ($query as $doc) {
+                if ($doc->exists()) {
+                    Log::info("✅ Knowledge base hit: {$doc->id()}");
+                    return $doc->data()['answer'] ?? null;
+                }
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            Log::error("❌ searchKnowledgeBase error: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Tambahkan entry baru ke knowledge base
+     */
     public function addKnowledgeBase(string $question, string $answer): bool
     {
         if (!$this->isConnected()) return false;
 
         try {
-            $trimmedQuestion = trim($question);
+            $trimmedQuestion = trim(strtolower($question));
 
+            // Cek duplikasi
             $query = $this->db->collection('knowledge_base')
-                ->where('question', '=', $trimmedQuestion)->limit(1);
+                ->where('question', '=', $trimmedQuestion)
+                ->limit(1)
+                ->documents();
 
-            if (!$query->documents()->isEmpty()) {
+            if (!$query->isEmpty()) {
                 Log::info("⚠️ KB already exists: {$trimmedQuestion}");
                 return false;
             }
@@ -98,6 +144,9 @@ class FirestoreService
         }
     }
 
+    /**
+     * Simpan log percakapan
+     */
     public function addChatLog(string $sessionId, string $question, string $answer, string $source, $userId = null): bool
     {
         if (!$this->isConnected()) return false;
@@ -120,14 +169,40 @@ class FirestoreService
         }
     }
 
+    /**
+     * Ekstrak kata kunci dari pertanyaan
+     */
     private function extractKeywords(string $text): array
     {
         $text = strtolower(preg_replace('/[^\p{L}\p{N}\s]/u', '', $text));
-        $stopwords = ['di', 'ke', 'dari', 'yang', 'dan', 'atau', 'tapi', 'adalah', 'yaitu', 'dengan', 'ini', 'itu', 'apa', 'siapa', 'kapan', 'dimana', 'bagaimana', 'mengapa', 'tentang'];
+        $stopwords = [
+            'di',
+            'ke',
+            'dari',
+            'yang',
+            'dan',
+            'atau',
+            'tapi',
+            'adalah',
+            'yaitu',
+            'dengan',
+            'ini',
+            'itu',
+            'apa',
+            'siapa',
+            'kapan',
+            'dimana',
+            'bagaimana',
+            'mengapa',
+            'tentang'
+        ];
         $keywords = array_filter(explode(' ', $text));
         return array_values(array_diff(array_unique($keywords), $stopwords));
     }
 
+    /**
+     * Kategorisasi pertanyaan
+     */
     private function categorizeQuestion(string $question): string
     {
         $q = strtolower($question);
