@@ -10,7 +10,6 @@ use Google\Cloud\Dialogflow\V2\DetectIntentRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Services\FirestoreService;
-use Google\Cloud\Firestore\V1\Client\FirestoreClient;
 use Symfony\Component\DomCrawler\Crawler;
 
 class ChatbotController extends Controller
@@ -36,7 +35,7 @@ class ChatbotController extends Controller
 
         try {
             // Layer 1: Coba Dialogflow untuk intent dasar (sapaan, dll)
-            Log::info("🤖 Layer 1: Mencoba Dialogflow untuk: '{$message}'");
+            Log::info("Layer 1: Mencoba Dialogflow untuk: '{$message}'");
             $dialogflowResponse = $this->detectIntent($message);
 
             // Periksa apakah Dialogflow memberikan respons yang valid dan bukan fallback
@@ -50,7 +49,7 @@ class ChatbotController extends Controller
             ) {
                 $response['message'] = $dialogflowResponse['text'];
                 $source = 'dialogflow';
-                Log::info("✅ Dialogflow berhasil memberikan jawaban: '{$dialogflowResponse['text']}'");
+                Log::info("Dialogflow berhasil memberikan jawaban: '{$dialogflowResponse['text']}'");
 
                 // Dapatkan sugesti cerdas dari OpenAI
                 $openAIResult = $this->fallbackWithOpenAI($message, null, true);
@@ -58,34 +57,34 @@ class ChatbotController extends Controller
             } else {
                 // Log detail mengapa Dialogflow tidak digunakan
                 if (!$dialogflowResponse) {
-                    Log::warning("❌ Dialogflow gagal total untuk kueri: '{$message}'");
+                    Log::warning("Dialogflow gagal total untuk kueri: '{$message}'");
                 } elseif (empty($dialogflowResponse['text'])) {
-                    Log::warning("❌ Dialogflow mengembalikan respons kosong untuk: '{$message}'");
+                    Log::warning("Dialogflow mengembalikan respons kosong untuk: '{$message}'");
                 } elseif ($dialogflowResponse['is_fallback']) {
-                    Log::warning("❌ Dialogflow fallback triggered untuk: '{$message}' - Response: " . ($dialogflowResponse['text'] ?? 'null'));
+                    Log::warning("Dialogflow fallback triggered untuk: '{$message}' - Response: " . ($dialogflowResponse['text'] ?? 'null'));
                 } else {
-                    Log::warning("❌ Dialogflow response tidak memenuhi kriteria untuk: '{$message}' - Response: '{$dialogflowResponse['text']}'");
+                    Log::warning("Dialogflow response tidak memenuhi kriteria untuk: '{$message}' - Response: '{$dialogflowResponse['text']}'");
                 }
 
                 // Layer 2: Cari jawaban di Firestore Knowledge Base
-                Log::info("🔍 Layer 2: Mencari di Firestore Knowledge Base");
-                $firestoreAnswer = $this->firestoreService->searchKnowledgeBase($message, 70.0);
+                Log::info("Layer 2: Mencari di Firestore Knowledge Base");
+                $firestoreAnswer = $this->firestoreService->searchKnowledgeBase($message);
 
                 if ($firestoreAnswer) {
                     $response['message'] = $firestoreAnswer;
                     $source = 'firestore';
-                    Log::info("✅ Firestore berhasil memberikan jawaban");
+                    Log::info("Firestore berhasil memberikan jawaban");
 
                     // Dapatkan sugesti cerdas dari OpenAI
                     $openAIResult = $this->fallbackWithOpenAI($message, null, true);
                     $response['suggestions'] = $openAIResult['suggestions'] ?? [];
                 } else {
-                    Log::info("🤖 Layer 3: Fallback ke OpenAI");
+                    Log::info("Layer 3: Fallback ke OpenAI");
 
                     // Layer 3: Fallback ke OpenAI
                     $contextData = null;
                     if (preg_match('/(kegiatan|acara|event|berita|artikel|terbaru|terkini)/i', $message)) {
-                        Log::info("🌐 Mendeteksi kata kunci kegiatan/berita. Mengambil data dari website...");
+                        Log::info("Mendeteksi kata kunci kegiatan/berita. Mengambil data dari website...");
                         $contextData = $this->scrapeWebsiteForActivities();
                     }
 
@@ -95,17 +94,17 @@ class ChatbotController extends Controller
                         $response['message'] = $openAIResult['answer'];
                         $response['suggestions'] = $openAIResult['suggestions'] ?? [];
                         $source = 'openai';
-                        Log::info("✅ OpenAI berhasil memberikan jawaban");
+                        Log::info("OpenAI berhasil memberikan jawaban");
 
                         // Learning Loop: Simpan pengetahuan baru ke Firestore
                         if ($contextData === null) {
                             $this->firestoreService->addKnowledgeBase($message, $openAIResult['answer']);
-                            Log::info("📚 Knowledge base umum baru ditambahkan: '{$message}'");
+                            Log::info("Knowledge base umum baru ditambahkan: '{$message}'");
                         }
                     } else {
                         $response['message'] = "Maaf, saya tidak dapat menemukan jawaban untuk pertanyaan itu saat ini. Silakan coba dengan pertanyaan yang berbeda.";
                         $source = 'openai_fail';
-                        Log::warning("❌ Semua layer gagal untuk: '{$message}'");
+                        Log::warning("Semua layer gagal untuk: '{$message}'");
                     }
                 }
             }
@@ -114,10 +113,10 @@ class ChatbotController extends Controller
             if ($source !== 'error') {
                 $this->firestoreService->addChatLog($sessionId, $message, $response['message'], $source, $userId);
                 $this->firestoreService->updateSystemMetrics($source);
-                Log::info("📊 Chat log dan metrik berhasil disimpan dengan source: {$source}");
+                Log::info("Chat log dan metrik berhasil disimpan dengan source: {$source}");
             }
         } catch (\Exception $e) {
-            Log::error('💥 Chatbot Controller Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine());
+            Log::error('Chatbot Controller Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine());
             $this->firestoreService->addErrorLog($e->getMessage(), $message, ['file' => $e->getFile(), 'line' => $e->getLine()]);
         }
 
@@ -130,23 +129,25 @@ class ChatbotController extends Controller
             $projectId = env('DIALOGFLOW_PROJECT_ID');
             $sessionId = session()->getId();
 
-            // PERBAIKAN: Menggunakan path dari env variable
-            $credentialsPath = storage_path(env('DIALOGFLOW_CREDENTIALS'));
+            // Menggunakan path dari env variable dengan handling duplikasi
+            $envPath = env('DIALOGFLOW_CREDENTIALS');
+            $cleanPath = str_replace('storage/', '', $envPath);
+            $credentialsPath = storage_path($cleanPath);
 
             // Verifikasi file exists
             if (!file_exists($credentialsPath)) {
-                Log::error("❌ File kredensial Dialogflow tidak ditemukan di: {$credentialsPath}");
+                Log::error("File kredensial Dialogflow tidak ditemukan di: {$credentialsPath}");
                 return null;
             }
 
-            Log::info("🔧 Menginisiasi Dialogflow - Text: '{$text}', Session: {$sessionId}, Project: {$projectId}, Credentials: {$credentialsPath}");
+            Log::info("Menginisiasi Dialogflow - Text: '{$text}', Session: {$sessionId}, Project: {$projectId}");
 
             $sessionsClient = new SessionsClient(['credentials' => $credentialsPath]);
             $session = $sessionsClient->sessionName($projectId, $sessionId);
 
             $textInput = (new TextInput())
                 ->setText($text)
-                ->setLanguageCode('id'); // Pastikan bahasa Indonesia
+                ->setLanguageCode('id');
 
             $queryInput = (new QueryInput())->setText($textInput);
 
@@ -158,15 +159,14 @@ class ChatbotController extends Controller
             $queryResult = $response->getQueryResult();
 
             $fulfillmentText = $queryResult->getFulfillmentText();
-            $intentName = $queryResult->getIntent()->getDisplayName();
-            $isFallback = $queryResult->getIntent()->getIsFallback();
+            $intentName = $queryResult->getIntent() ? $queryResult->getIntent()->getDisplayName() : 'No Intent';
+            $isFallback = $queryResult->getIntent() ? $queryResult->getIntent()->getIsFallback() : true;
             $confidence = $queryResult->getIntentDetectionConfidence();
 
-            Log::info("🎯 Dialogflow Response - Intent: '{$intentName}', Text: '{$fulfillmentText}', Fallback: {$isFallback}, Confidence: {$confidence}");
+            Log::info("Dialogflow Response - Intent: '{$intentName}', Text: '{$fulfillmentText}', Fallback: {$isFallback}, Confidence: {$confidence}");
 
             $sessionsClient->close();
 
-            // Return response dengan informasi lengkap
             return [
                 'text' => $fulfillmentText,
                 'intent_name' => $intentName,
@@ -174,7 +174,42 @@ class ChatbotController extends Controller
                 'confidence' => $confidence,
             ];
         } catch (\Exception $e) {
-            Log::error("💥 Dialogflow Error: " . $e->getMessage() . " | File: " . $e->getFile() . " | Line: " . $e->getLine());
+            Log::error("Dialogflow Error: " . $e->getMessage() . " | File: " . $e->getFile() . " | Line: " . $e->getLine());
+            return null;
+        }
+    }
+
+    private function scrapeWebsiteForActivities(): ?string
+    {
+        try {
+            $url = 'https://genbicirebon.org/kegiatan';
+            $response = Http::get($url);
+
+            if (!$response->successful()) {
+                Log::warning("Gagal mengakses {$url}. Status: " . $response->status());
+                return null;
+            }
+
+            $crawler = new Crawler($response->body());
+
+            $activities = $crawler->filter('.blog-item')->slice(0, 5)->each(function (Crawler $node) {
+                $titleNode = $node->filter('.blog-title a');
+                $title = $titleNode->count() ? $titleNode->text('Judul tidak ditemukan') : 'Judul tidak ditemukan';
+
+                $dateNode = $node->filter('.blog-meta span')->first();
+                $date = $dateNode->count() ? $dateNode->text('Tanggal tidak ditemukan') : 'Tanggal tidak ditemukan';
+
+                return "- {$title} (dipublikasikan sekitar {$date})";
+            });
+
+            if (empty($activities)) {
+                Log::info('Tidak ada item kegiatan yang ditemukan di website menggunakan selector yang ada.');
+                return "Saat ini tidak ada informasi kegiatan terbaru yang bisa ditampilkan dari website.";
+            }
+
+            return "Berikut adalah beberapa kegiatan atau berita terbaru dari website genbicirebon.org:\n" . implode("\n", $activities);
+        } catch (\Exception $e) {
+            Log::error('Scraping Error: ' . $e->getMessage());
             return null;
         }
     }
@@ -219,46 +254,11 @@ class ChatbotController extends Controller
                 ];
             }
 
-            Log::error('💥 OpenAI Fallback HTTP Error: ' . $response->body());
+            Log::error('OpenAI Fallback HTTP Error: ' . $response->body());
             return ['answer' => 'Maaf, saya sedang mengalami kendala teknis (API).', 'suggestions' => []];
         } catch (\Exception $e) {
-            Log::error('💥 OpenAI Fallback Exception: ' . $e->getMessage());
+            Log::error('OpenAI Fallback Exception: ' . $e->getMessage());
             return ['answer' => 'Maaf, koneksi ke asisten AI sedang bermasalah.', 'suggestions' => []];
-        }
-    }
-
-    private function scrapeWebsiteForActivities(): ?string
-    {
-        try {
-            $url = 'https://genbicirebon.org/kegiatan';
-            $response = Http::get($url);
-
-            if (!$response->successful()) {
-                Log::warning("Gagal mengakses {$url}. Status: " . $response->status());
-                return null;
-            }
-
-            $crawler = new Crawler($response->body());
-
-            $activities = $crawler->filter('.blog-item')->slice(0, 5)->each(function (Crawler $node) {
-                $titleNode = $node->filter('.blog-title a');
-                $title = $titleNode->count() ? $titleNode->text('Judul tidak ditemukan') : 'Judul tidak ditemukan';
-
-                $dateNode = $node->filter('.blog-meta span')->first();
-                $date = $dateNode->count() ? $dateNode->text('Tanggal tidak ditemukan') : 'Tanggal tidak ditemukan';
-
-                return "- {$title} (dipublikasikan sekitar {$date})";
-            });
-
-            if (empty($activities)) {
-                Log::info('Tidak ada item kegiatan yang ditemukan di website menggunakan selector yang ada.');
-                return "Saat ini tidak ada informasi kegiatan terbaru yang bisa ditampilkan dari website.";
-            }
-
-            return "Berikut adalah beberapa kegiatan atau berita terbaru dari website genbicirebon.org:\n" . implode("\n", $activities);
-        } catch (\Exception $e) {
-            Log::error('Scraping Error: ' . $e->getMessage());
-            return null;
         }
     }
 
@@ -266,11 +266,11 @@ class ChatbotController extends Controller
     {
         try {
             $projectId = env('DIALOGFLOW_PROJECT_ID');
-            // PERBAIKAN: Menggunakan path dari env variable
-            $credentialsPath = storage_path(env('DIALOGFLOW_CREDENTIALS'));
+            $envPath = env('DIALOGFLOW_CREDENTIALS');
+            $cleanPath = str_replace('storage/', '', $envPath);
+            $credentialsPath = storage_path($cleanPath);
             $sessionId = uniqid('test-');
 
-            // Verifikasi file exists
             if (!file_exists($credentialsPath)) {
                 return response()->json([
                     'status' => 'error',
@@ -291,8 +291,8 @@ class ChatbotController extends Controller
             $queryResult = $response->getQueryResult();
 
             $fulfillmentText = $queryResult->getFulfillmentText();
-            $intentName = $queryResult->getIntent()->getDisplayName();
-            $isFallback = $queryResult->getIntent()->getIsFallback();
+            $intentName = $queryResult->getIntent() ? $queryResult->getIntent()->getDisplayName() : 'No Intent';
+            $isFallback = $queryResult->getIntent() ? $queryResult->getIntent()->getIsFallback() : true;
             $confidence = $queryResult->getIntentDetectionConfidence();
 
             Log::info("Dialogflow test respons - Intent: '{$intentName}', Text: '{$fulfillmentText}', Fallback: {$isFallback}, Confidence: {$confidence}");
@@ -317,52 +317,6 @@ class ChatbotController extends Controller
         }
     }
 
-    public function testFirestore()
-    {
-        try {
-            // PERBAIKAN: Menggunakan path dari env variable
-            $credentialsPath = storage_path(env('FIREBASE_CREDENTIALS'));
-            $projectId = env('FIREBASE_PROJECT_ID');
-
-            // Verifikasi file exists
-            if (!file_exists($credentialsPath)) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => "File kredensial Firestore tidak ditemukan di: {$credentialsPath}",
-                ], 500);
-            }
-
-            Log::info("Menguji Firestore dengan project: {$projectId}, credentials: {$credentialsPath}");
-
-            $db = new FirestoreClient([
-                'keyFilePath' => $credentialsPath,
-                'projectId' => $projectId,
-            ]);
-
-            $testData = [
-                'test_field' => 'Test at ' . now()->toDateTimeString(),
-                'timestamp' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
-            ];
-            $docRef = $db->collection('test_collection')->add($testData);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Koneksi Firestore berhasil! Dokumen ditambahkan dengan ID: ' . $docRef->id(),
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Firestore Test Error: " . $e->getMessage() . " | File: " . $e->getFile() . " | Line: " . $e->getLine());
-            $this->firestoreService->addErrorLog($e->getMessage(), 'Test Firestore', ['file' => $e->getFile(), 'line' => $e->getLine()]);
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Gagal menghubungkan ke Firestore: ' . $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Endpoint khusus untuk testing Dialogflow secara isolated
-     * Route: POST /chatbot/dialogflow-only
-     */
     public function sendMessageDialogflowOnly(Request $request)
     {
         $message = $request->input('message');
@@ -375,7 +329,7 @@ class ChatbotController extends Controller
         ];
 
         try {
-            Log::info("🎯 DIALOGFLOW ONLY TEST - Input: '{$message}', Session: {$sessionId}");
+            Log::info("DIALOGFLOW ONLY TEST - Input: '{$message}', Session: {$sessionId}");
 
             $dialogflowResponse = $this->detectIntent($message);
 
@@ -389,16 +343,16 @@ class ChatbotController extends Controller
                     'fulfillment_text' => $dialogflowResponse['text'] ?? '',
                 ];
 
-                Log::info("🎯 DIALOGFLOW RESPONSE", $response['debug_info']);
+                Log::info("DIALOGFLOW RESPONSE", $response['debug_info']);
             } else {
                 $response['message'] = 'Dialogflow gagal total - tidak ada respons';
                 $response['source'] = 'dialogflow_error';
                 $response['debug_info'] = ['error' => 'No response from Dialogflow'];
 
-                Log::error("🎯 DIALOGFLOW FAILED - No response returned");
+                Log::error("DIALOGFLOW FAILED - No response returned");
             }
         } catch (\Exception $e) {
-            Log::error('🎯 DIALOGFLOW ONLY ERROR: ' . $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine());
+            Log::error('DIALOGFLOW ONLY ERROR: ' . $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine());
 
             $response['message'] = 'Error: ' . $e->getMessage();
             $response['source'] = 'dialogflow_exception';
@@ -410,67 +364,5 @@ class ChatbotController extends Controller
         }
 
         return response()->json($response);
-    }
-
-    /**
-     * Test multiple training phrases untuk Dialogflow
-     * Route: GET /chatbot/test-training-phrases
-     */
-    public function testTrainingPhrases()
-    {
-        $testPhrases = [
-            'Apa itu GenBI?',
-            'GenBI artinya apa?',
-            'Ceritain tentang GenBI dong',
-            'Definisi GenBI',
-            'GenBI kepanjangan dari apa?',
-            'Bisa jelasin tentang GenBI?',
-            'GenBI itu apa sih?',
-            'Maksud GenBI apa?',
-            'Pengertian GenBI',
-            'Info GenBI',
-            'Halo',
-            'Hai',
-            'Selamat pagi',
-            'Random question tidak ada di training',
-        ];
-
-        $results = [];
-
-        foreach ($testPhrases as $phrase) {
-            try {
-                $dialogflowResponse = $this->detectIntent($phrase);
-
-                $results[] = [
-                    'input' => $phrase,
-                    'success' => $dialogflowResponse !== null,
-                    'response' => $dialogflowResponse['text'] ?? null,
-                    'intent' => $dialogflowResponse['intent_name'] ?? null,
-                    'confidence' => $dialogflowResponse['confidence'] ?? 0,
-                    'is_fallback' => $dialogflowResponse['is_fallback'] ?? true,
-                ];
-
-                // Delay kecil untuk menghindari rate limit
-                usleep(500000); // 0.5 detik
-
-            } catch (\Exception $e) {
-                $results[] = [
-                    'input' => $phrase,
-                    'success' => false,
-                    'error' => $e->getMessage(),
-                ];
-            }
-        }
-
-        return response()->json([
-            'total_tests' => count($testPhrases),
-            'results' => $results,
-            'summary' => [
-                'successful' => count(array_filter($results, fn($r) => $r['success'] ?? false)),
-                'failed' => count(array_filter($results, fn($r) => !($r['success'] ?? false))),
-                'fallback_triggered' => count(array_filter($results, fn($r) => ($r['is_fallback'] ?? true) && ($r['success'] ?? false))),
-                'proper_intents' => count(array_filter($results, fn($r) => !($r['is_fallback'] ?? true) && ($r['success'] ?? false))),
-            ],
-        ]);
     }
 }
