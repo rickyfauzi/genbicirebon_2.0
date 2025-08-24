@@ -181,7 +181,7 @@ class ChatbotController extends Controller
         try {
             $projectId = env('DIALOGFLOW_PROJECT_ID');
             $sessionId = session()->getId();
-            $credentialsPath = storage_path(env('FIREBASE_CREDENTIALS'));
+            $credentialsPath = storage_path(env('DIALOGFLOW_CREDENTIALS'));
 
             Log::info("Menginisiasi Dialogflow untuk teks: '{$text}', session: {$sessionId}, project: {$projectId}");
 
