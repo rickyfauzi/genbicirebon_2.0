@@ -81,6 +81,7 @@ class ChatbotController extends Controller
             // Simpan log percakapan
             if ($source !== 'error') {
                 $this->firestoreService->addChatLog($sessionId, $message, $response['message'], $source, $userId);
+                $this->firestoreService->updateSystemMetrics($source);
             }
         } catch (\Exception $e) {
             Log::error('Chatbot Controller Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine());
