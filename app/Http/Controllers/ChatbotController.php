@@ -40,7 +40,7 @@ class ChatbotController extends Controller
             // Layer 1: Coba Dialogflow untuk intent dasar (sapaan, dll)
             $dialogflowResponse = $this->detectIntent($message);
 
-            if ($dialogflowResponse && !empty($dialogflowResponse['text']) && !$dialogflowResponse['is_fallback']) {
+            if ($dialogflowResponse && !empty($dialogflowResponse['text'])) {
                 $response['message'] = $dialogflowResponse['text'];
                 $source = 'dialogflow';
                 $openAIResult = $this->fallbackWithOpenAI($message, null, true); // Dapatkan sugesti cerdas
@@ -234,6 +234,9 @@ class ChatbotController extends Controller
             $response = $sessionsClient->detectIntent($request);
             $queryResult = $response->getQueryResult();
             $fulfillmentText = $queryResult->getFulfillmentText();
+            $isFallback = $queryResult->getIntent()->getIsFallback();
+
+            Log::info("Dialogflow test respons: text='{$fulfillmentText}', is_fallback={$isFallback}");
 
             $sessionsClient->close();
 
