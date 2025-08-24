@@ -14,6 +14,8 @@ use Symfony\Component\DomCrawler\Crawler;
 
 class ChatbotController extends Controller
 {
+
+
     private $firestoreService;
 
     public function __construct(FirestoreService $firestoreService)
@@ -43,15 +45,16 @@ class ChatbotController extends Controller
                 $openAIResult = $this->fallbackWithOpenAI($message, null, true); // Dapatkan sugesti cerdas
                 $response['suggestions'] = $openAIResult['suggestions'] ?? [];
             } else {
+                // Log jika Dialogflow gagal
+                Log::warning("Dialogflow gagal untuk kueri: '{$message}'. Response: " . json_encode($dialogflowResponse));
                 // Layer 2: Cari jawaban di Firestore Knowledge Base
-                $firestoreAnswer = $this->firestoreService->searchKnowledgeBase($message);
+                $firestoreAnswer = $this->firestoreService->searchKnowledgeBase($message, 60.0); // Turunkan threshold
                 if ($firestoreAnswer) {
                     $response['message'] = $firestoreAnswer;
                     $source = 'firestore';
                     $openAIResult = $this->fallbackWithOpenAI($message, null, true); // Dapatkan sugesti cerdas
                     $response['suggestions'] = $openAIResult['suggestions'] ?? [];
                 } else {
-
                     $contextData = null;
                     if (preg_match('/(kegiatan|acara|event|berita|artikel|terbaru|terkini)/i', $message)) {
                         Log::info("Mendeteksi kata kunci kegiatan/berita. Mengambil data dari website...");
@@ -66,7 +69,6 @@ class ChatbotController extends Controller
                         $source = 'openai';
 
                         // Learning Loop: Simpan pengetahuan baru ke Firestore
-                        // Hanya simpan jawaban umum, bukan yang spesifik waktu (seperti berita terbaru)
                         if ($contextData === null) {
                             $this->firestoreService->addKnowledgeBase($message, $openAIResult['answer']);
                             Log::info("Knowledge base umum baru ditambahkan: '{$message}'");
@@ -78,23 +80,22 @@ class ChatbotController extends Controller
                 }
             }
 
-            // Simpan log percakapan
+            // Simpan log percakapan dan update metrik
             if ($source !== 'error') {
                 $this->firestoreService->addChatLog($sessionId, $message, $response['message'], $source, $userId);
                 $this->firestoreService->updateSystemMetrics($source);
             }
         } catch (\Exception $e) {
             Log::error('Chatbot Controller Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine());
+            $this->firestoreService->addErrorLog($e->getMessage(), $message, ['file' => $e->getFile(), 'line' => $e->getLine()]);
         }
 
         return response()->json($response);
     }
 
-
     private function scrapeWebsiteForActivities(): ?string
     {
         try {
-            // Target URL halaman kegiatan/berita. Pastikan URL ini benar.
             $url = 'https://genbicirebon.org/kegiatan';
             $response = Http::get($url);
 
@@ -105,11 +106,7 @@ class ChatbotController extends Controller
 
             $crawler = new Crawler($response->body());
 
-            // Selector CSS ini harus disesuaikan dengan struktur HTML website Anda.
-            // Inspeksi halaman web untuk menemukan selector yang tepat.
-            // Contoh ini berasumsi setiap item berita ada di dalam div dengan class '.blog-item'
             $activities = $crawler->filter('.blog-item')->slice(0, 5)->each(function (Crawler $node) {
-                // Selector untuk judul dan tanggal juga harus disesuaikan.
                 $titleNode = $node->filter('.blog-title a');
                 $title = $titleNode->count() ? $titleNode->text('Judul tidak ditemukan') : 'Judul tidak ditemukan';
 
@@ -136,17 +133,13 @@ class ChatbotController extends Controller
         $apiKey = env('OPENROUTER_API_KEY');
         $siteContext = "Kamu adalah 'GenBI Assistant', asisten AI yang ramah, informatif, dan ahli tentang GenBI Cirebon (Generasi Baru Indonesia Cirebon), sebuah komunitas penerima beasiswa Bank Indonesia. Website resmi adalah genbicirebon.org. Jawablah semua pertanyaan dalam konteks ini.";
 
-        $promptAction = "";
-        if ($suggestionsOnly) {
-            $promptAction = "Tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang relevan dengan pertanyaan pengguna. JANGAN menjawab pertanyaan pengguna.";
-        } else {
-            $promptAction = "Jawab pertanyaan pengguna secara ringkas dan informatif. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan dan sangat singkat (maksimal 4 kata per saran).";
-        }
+        $promptAction = $suggestionsOnly
+            ? "Tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang relevan dengan pertanyaan pengguna. JANGAN menjawab pertanyaan pengguna."
+            : "Jawab pertanyaan pengguna secara ringkas dan informatif. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan dan sangat singkat (maksimal 4 kata per saran).";
 
-        $contextInjection = "";
-        if ($externalContext) {
-            $contextInjection = "Gunakan informasi tambahan berikut untuk menjawab pertanyaan pengguna secara akurat:\n---INFO TAMBAHAN---\n{$externalContext}\n-------------------\n";
-        }
+        $contextInjection = $externalContext
+            ? "Gunakan informasi tambahan berikut untuk menjawab pertanyaan pengguna secara akurat:\n---INFO TAMBAHAN---\n{$externalContext}\n-------------------\n"
+            : "";
 
         $systemPrompt = "{$siteContext} {$contextInjection} {$promptAction} Format respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. Jika hanya diminta saran, isi field 'answer' dengan string kosong.";
 
@@ -154,8 +147,8 @@ class ChatbotController extends Controller
             $response = Http::timeout(45)->withHeaders([
                 'Authorization' => 'Bearer ' . $apiKey,
                 'Content-Type' => 'application/json',
-                'HTTP-Referer'  => request()->getSchemeAndHttpHost(),
-                'X-Title'       => 'Genbi Cirebon Chatbot',
+                'HTTP-Referer' => request()->getSchemeAndHttpHost(),
+                'X-Title' => 'Genbi Cirebon Chatbot',
             ])->post('https://openrouter.ai/api/v1/chat/completions', [
                 "model" => "openai/gpt-3.5-turbo",
                 "messages" => [
@@ -186,9 +179,11 @@ class ChatbotController extends Controller
     private function detectIntent(string $text)
     {
         try {
-            $projectId = 'websitebot-etqi';
+            $projectId = env('DIALOGFLOW_PROJECT_ID');
             $sessionId = session()->getId();
             $credentialsPath = storage_path(env('FIREBASE_CREDENTIALS'));
+
+            Log::info("Menginisiasi Dialogflow untuk teks: '{$text}', session: {$sessionId}, project: {$projectId}");
 
             $sessionsClient = new SessionsClient(['credentials' => $credentialsPath]);
             $session = $sessionsClient->sessionName($projectId, $sessionId);
@@ -202,15 +197,19 @@ class ChatbotController extends Controller
 
             $response = $sessionsClient->detectIntent($request);
             $queryResult = $response->getQueryResult();
+            $fulfillmentText = $queryResult->getFulfillmentText();
+            $isFallback = $queryResult->getIntent()->getIsFallback();
+
+            Log::info("Dialogflow respons: text='{$fulfillmentText}', is_fallback={$isFallback}");
 
             $sessionsClient->close();
 
             return [
-                'text' => $queryResult->getFulfillmentText(),
-                'is_fallback' => $queryResult->getIntent()->getIsFallback(),
+                'text' => $fulfillmentText,
+                'is_fallback' => $isFallback,
             ];
         } catch (\Exception $e) {
-            Log::error("Dialogflow Error: " . $e->getMessage());
+            Log::error("Dialogflow Error: " . $e->getMessage() . " | File: " . $e->getFile() . " | Line: " . $e->getLine());
             return null;
         }
     }
