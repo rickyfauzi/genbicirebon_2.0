@@ -413,107 +413,64 @@ class ChatbotController extends Controller
     }
 
     /**
-     * Diagnostic lengkap untuk debugging Dialogflow
-     * Route: GET /chatbot/diagnose-dialogflow
+     * Test multiple training phrases untuk Dialogflow
+     * Route: GET /chatbot/test-training-phrases
      */
-    public function diagnoseDialogflow()
+    public function testTrainingPhrases()
     {
-        $diagnostics = [];
-
-        // 1. Cek Environment Variables
-        $diagnostics['env_check'] = [
-            'DIALOGFLOW_PROJECT_ID' => env('DIALOGFLOW_PROJECT_ID') ?: 'NOT SET',
-            'DIALOGFLOW_CREDENTIALS' => env('DIALOGFLOW_CREDENTIALS') ?: 'NOT SET',
+        $testPhrases = [
+            'Apa itu GenBI?',
+            'GenBI artinya apa?',
+            'Ceritain tentang GenBI dong',
+            'Definisi GenBI',
+            'GenBI kepanjangan dari apa?',
+            'Bisa jelasin tentang GenBI?',
+            'GenBI itu apa sih?',
+            'Maksud GenBI apa?',
+            'Pengertian GenBI',
+            'Info GenBI',
+            'Halo',
+            'Hai',
+            'Selamat pagi',
+            'Random question tidak ada di training',
         ];
 
-        // 2. Cek File Kredensial
-        $credentialsPath = storage_path(env('DIALOGFLOW_CREDENTIALS'));
-        $diagnostics['credentials_check'] = [
-            'path' => $credentialsPath,
-            'exists' => file_exists($credentialsPath),
-            'readable' => file_exists($credentialsPath) ? is_readable($credentialsPath) : false,
-            'size' => file_exists($credentialsPath) ? filesize($credentialsPath) : 0,
-        ];
+        $results = [];
 
-        // 3. Cek isi file credentials (tanpa expose private key)
-        if (file_exists($credentialsPath)) {
+        foreach ($testPhrases as $phrase) {
             try {
-                $credContent = json_decode(file_get_contents($credentialsPath), true);
-                $diagnostics['credentials_content'] = [
-                    'valid_json' => $credContent !== null,
-                    'has_project_id' => isset($credContent['project_id']),
-                    'has_private_key' => isset($credContent['private_key']),
-                    'has_client_email' => isset($credContent['client_email']),
-                    'project_id_in_file' => $credContent['project_id'] ?? 'NOT FOUND',
-                    'client_email' => $credContent['client_email'] ?? 'NOT FOUND',
+                $dialogflowResponse = $this->detectIntent($phrase);
+
+                $results[] = [
+                    'input' => $phrase,
+                    'success' => $dialogflowResponse !== null,
+                    'response' => $dialogflowResponse['text'] ?? null,
+                    'intent' => $dialogflowResponse['intent_name'] ?? null,
+                    'confidence' => $dialogflowResponse['confidence'] ?? 0,
+                    'is_fallback' => $dialogflowResponse['is_fallback'] ?? true,
                 ];
+
+                // Delay kecil untuk menghindari rate limit
+                usleep(500000); // 0.5 detik
+
             } catch (\Exception $e) {
-                $diagnostics['credentials_content'] = [
+                $results[] = [
+                    'input' => $phrase,
+                    'success' => false,
                     'error' => $e->getMessage(),
                 ];
             }
         }
 
-        // 4. Test Dialogflow Connection dengan error handling detail
-        $diagnostics['dialogflow_test'] = [];
-        try {
-            $projectId = env('DIALOGFLOW_PROJECT_ID');
-            $sessionId = 'diagnostic-' . uniqid();
-
-            Log::info("🔍 DIAGNOSTIC: Starting Dialogflow test with project: {$projectId}");
-
-            $sessionsClient = new SessionsClient(['credentials' => $credentialsPath]);
-            $session = $sessionsClient->sessionName($projectId, $sessionId);
-
-            $diagnostics['dialogflow_test']['session_created'] = true;
-            $diagnostics['dialogflow_test']['session_name'] = $session;
-
-            $textInput = (new TextInput())->setText('test')->setLanguageCode('id');
-            $queryInput = (new QueryInput())->setText($textInput);
-            $request = (new DetectIntentRequest())
-                ->setSession($session)
-                ->setQueryInput($queryInput);
-
-            Log::info("🔍 DIAGNOSTIC: Sending request to Dialogflow...");
-
-            $response = $sessionsClient->detectIntent($request);
-            $queryResult = $response->getQueryResult();
-
-            $diagnostics['dialogflow_test']['request_sent'] = true;
-            $diagnostics['dialogflow_test']['response_received'] = true;
-            $diagnostics['dialogflow_test']['fulfillment_text'] = $queryResult->getFulfillmentText();
-            $diagnostics['dialogflow_test']['intent_name'] = $queryResult->getIntent()->getDisplayName();
-            $diagnostics['dialogflow_test']['confidence'] = $queryResult->getIntentDetectionConfidence();
-            $diagnostics['dialogflow_test']['is_fallback'] = $queryResult->getIntent()->getIsFallback();
-
-            $sessionsClient->close();
-
-            Log::info("🔍 DIAGNOSTIC: Dialogflow test successful");
-        } catch (\Google\ApiCore\ValidationException $e) {
-            Log::error("🔍 DIAGNOSTIC: Validation Error - " . $e->getMessage());
-            $diagnostics['dialogflow_test']['error'] = 'Validation Error: ' . $e->getMessage();
-            $diagnostics['dialogflow_test']['error_type'] = 'validation';
-        } catch (\Google\ApiCore\ApiException $e) {
-            Log::error("🔍 DIAGNOSTIC: API Error - " . $e->getMessage());
-            $diagnostics['dialogflow_test']['error'] = 'API Error: ' . $e->getMessage();
-            $diagnostics['dialogflow_test']['error_type'] = 'api';
-            $diagnostics['dialogflow_test']['status_code'] = $e->getCode();
-        } catch (\Exception $e) {
-            Log::error("🔍 DIAGNOSTIC: General Error - " . $e->getMessage());
-            $diagnostics['dialogflow_test']['error'] = $e->getMessage();
-            $diagnostics['dialogflow_test']['error_type'] = 'general';
-            $diagnostics['dialogflow_test']['file'] = $e->getFile();
-            $diagnostics['dialogflow_test']['line'] = $e->getLine();
-        }
-
-        // 5. Cek Google Cloud SDK
-        $diagnostics['system_check'] = [
-            'php_version' => PHP_VERSION,
-            'gcloud_extension_loaded' => extension_loaded('grpc'),
-            'openssl_loaded' => extension_loaded('openssl'),
-            'curl_loaded' => extension_loaded('curl'),
-        ];
-
-        return response()->json($diagnostics, 200, [], JSON_PRETTY_PRINT);
+        return response()->json([
+            'total_tests' => count($testPhrases),
+            'results' => $results,
+            'summary' => [
+                'successful' => count(array_filter($results, fn($r) => $r['success'] ?? false)),
+                'failed' => count(array_filter($results, fn($r) => !($r['success'] ?? false))),
+                'fallback_triggered' => count(array_filter($results, fn($r) => ($r['is_fallback'] ?? true) && ($r['success'] ?? false))),
+                'proper_intents' => count(array_filter($results, fn($r) => !($r['is_fallback'] ?? true) && ($r['success'] ?? false))),
+            ],
+        ]);
     }
 }
