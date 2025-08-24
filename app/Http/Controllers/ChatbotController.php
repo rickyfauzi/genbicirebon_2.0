@@ -130,8 +130,11 @@ class ChatbotController extends Controller
             $projectId = env('DIALOGFLOW_PROJECT_ID');
             $sessionId = session()->getId();
 
-            // PERBAIKAN: Menggunakan path dari env variable
-            $credentialsPath = storage_path(env('DIALOGFLOW_CREDENTIALS'));
+            // PERBAIKAN: Menggunakan path dari env variable dengan handling duplikasi
+            $envPath = env('DIALOGFLOW_CREDENTIALS');
+            // Remove 'storage/' prefix jika ada untuk menghindari duplikasi
+            $cleanPath = str_replace('storage/', '', $envPath);
+            $credentialsPath = storage_path($cleanPath);
 
             // Verifikasi file exists
             if (!file_exists($credentialsPath)) {
@@ -266,8 +269,10 @@ class ChatbotController extends Controller
     {
         try {
             $projectId = env('DIALOGFLOW_PROJECT_ID');
-            // PERBAIKAN: Menggunakan path dari env variable
-            $credentialsPath = storage_path(env('DIALOGFLOW_CREDENTIALS'));
+            // PERBAIKAN: Menggunakan path dari env variable dengan handling duplikasi
+            $envPath = env('DIALOGFLOW_CREDENTIALS');
+            $cleanPath = str_replace('storage/', '', $envPath);
+            $credentialsPath = storage_path($cleanPath);
             $sessionId = uniqid('test-');
 
             // Verifikasi file exists
@@ -426,8 +431,10 @@ class ChatbotController extends Controller
             'DIALOGFLOW_CREDENTIALS' => env('DIALOGFLOW_CREDENTIALS') ?: 'NOT SET',
         ];
 
-        // 2. Cek File Kredensial
-        $credentialsPath = storage_path(env('DIALOGFLOW_CREDENTIALS'));
+        // 2. Cek File Kredensial dengan path yang diperbaiki
+        $envPath = env('DIALOGFLOW_CREDENTIALS');
+        $cleanPath = str_replace('storage/', '', $envPath);
+        $credentialsPath = storage_path($cleanPath);
         $diagnostics['credentials_check'] = [
             'path' => $credentialsPath,
             'exists' => file_exists($credentialsPath),
