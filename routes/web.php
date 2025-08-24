@@ -46,23 +46,13 @@ Route::get('/firestore-test', function (\App\Services\FirestoreService $firestor
     return "Firestore mantap";
 });
 
+Route::get('/firestore-test', function (FirestoreService $fs) {
+    return response()->json($fs->testConnection());
+});
+
 Route::post('/chatbot/send', [ChatbotController::class, 'sendMessage'])->name('chatbot.send');
 
 // 🔹 Route test Firestore connection
-Route::get('/firebase/test', function (FirestoreService $firestore) {
-    try {
-        $firestore->addKnowledgeBase("test_question", "test_answer");
-        return response()->json([
-            'status' => 'success',
-            'message' => '✅ Firestore connection OK & data test disimpan.',
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage(),
-        ], 500);
-    }
-});
 
 // 🔹 Route test Dialogflow detectIntent
 Route::get('/dialogflow/test', [ChatbotController::class, function (ChatbotController $controller) {
