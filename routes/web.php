@@ -45,8 +45,9 @@ Route::get('/firestore-test', function (\App\Services\FirestoreService $firestor
     return "Firestore mantap";
 });
 
-Route::post('/chatbot/dialogflow-only', [ChatbotController::class, 'sendMessageDialogflowOnly']);
-Route::get('/chatbot/test-training-phrases', [ChatbotController::class, 'testTrainingPhrases']);
+// di routes/web.php
+Route::post('/dialogflow-only', [ChatbotController::class, 'sendMessageDialogflowOnly']);
+Route::get('/diagnose-dialogflow', [ChatbotController::class, 'diagnoseDialogflow']);
 
 
 /** for side bar menu active */
