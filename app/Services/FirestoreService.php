@@ -14,7 +14,7 @@ class FirestoreService
     public function __construct()
     {
         try {
-            $credentialsPath = storage_path(env('FIREBASE_CREDENTIALS'));
+            $credentialsPath = base_path(env('FIREBASE_CREDENTIALS'));
             $projectId = env('FIREBASE_PROJECT_ID');
 
             if (!file_exists($credentialsPath)) {
