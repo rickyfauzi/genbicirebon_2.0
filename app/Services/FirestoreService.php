@@ -1,97 +1,217 @@
 <?php
 
-namespace App\Services;
+namespace App\Http\Controllers;
 
-use Google\Cloud\Firestore\FirestoreClient;
-use Google\Cloud\Core\Timestamp;
+use Illuminate\Http\Request;
+use Google\Cloud\Dialogflow\V2\Client\SessionsClient;
+use Google\Cloud\Dialogflow\V2\QueryInput;
+use Google\Cloud\Dialogflow\V2\TextInput;
+use Google\Cloud\Dialogflow\V2\DetectIntentRequest;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Services\FirestoreService;
+use Symfony\Component\DomCrawler\Crawler;
 
-class FirestoreService
+class ChatbotController extends Controller
 {
-    protected $db;
+    private $firestoreService;
 
-    public function __construct()
+    public function __construct(FirestoreService $firestoreService)
+    {
+        $this->firestoreService = $firestoreService;
+    }
+
+    public function sendMessage(Request $request)
+    {
+        $message = $request->input('message');
+        $sessionId = $request->input('session_id', session()->getId());
+        $userId = auth()->id();
+
+        $response = [
+            'message' => 'Maaf, terjadi kesalahan. Silakan coba lagi nanti.',
+            'suggestions' => [],
+        ];
+        $source = 'error';
+
+        try {
+            // Layer 1: Coba Dialogflow untuk intent dasar (sapaan, dll)
+            $dialogflowResponse = $this->detectIntent($message);
+
+            if ($dialogflowResponse && !empty($dialogflowResponse['text']) && !$dialogflowResponse['is_fallback']) {
+                $response['message'] = $dialogflowResponse['text'];
+                $source = 'dialogflow';
+                $openAIResult = $this->fallbackWithOpenAI($message, null, true); // Dapatkan sugesti cerdas
+                $response['suggestions'] = $openAIResult['suggestions'] ?? [];
+            } else {
+                // Layer 2: Cari jawaban di Firestore Knowledge Base
+                $firestoreAnswer = $this->firestoreService->searchKnowledgeBase($message);
+                if ($firestoreAnswer) {
+                    $response['message'] = $firestoreAnswer;
+                    $source = 'firestore';
+                    $openAIResult = $this->fallbackWithOpenAI($message, null, true); // Dapatkan sugesti cerdas
+                    $response['suggestions'] = $openAIResult['suggestions'] ?? [];
+                } else {
+
+                    $contextData = null;
+                    if (preg_match('/(kegiatan|acara|event|berita|artikel|terbaru|terkini)/i', $message)) {
+                        Log::info("Mendeteksi kata kunci kegiatan/berita. Mengambil data dari website...");
+                        $contextData = $this->scrapeWebsiteForActivities();
+                    }
+
+                    $openAIResult = $this->fallbackWithOpenAI($message, $contextData);
+
+                    if (isset($openAIResult['answer']) && !empty($openAIResult['answer'])) {
+                        $response['message'] = $openAIResult['answer'];
+                        $response['suggestions'] = $openAIResult['suggestions'] ?? [];
+                        $source = 'openai';
+
+                        // Learning Loop: Simpan pengetahuan baru ke Firestore
+                        // Hanya simpan jawaban umum, bukan yang spesifik waktu (seperti berita terbaru)
+                        if ($contextData === null) {
+                            $this->firestoreService->addKnowledgeBase($message, $openAIResult['answer']);
+                            Log::info("Knowledge base umum baru ditambahkan: '{$message}'");
+                        }
+                    } else {
+                        $response['message'] = "Maaf, saya tidak dapat menemukan jawaban untuk pertanyaan itu saat ini.";
+                        $source = 'openai_fail';
+                    }
+                }
+            }
+
+            // Simpan log percakapan
+            if ($source !== 'error') {
+                $this->firestoreService->addChatLog($sessionId, $message, $response['message'], $source, $userId);
+                $this->firestoreService->updateSystemMetrics($source);
+            }
+        } catch (\Exception $e) {
+            Log::error('Chatbot Controller Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine());
+        }
+
+        return response()->json($response);
+    }
+
+
+    private function scrapeWebsiteForActivities(): ?string
     {
         try {
-            $this->db = new FirestoreClient([
-                'keyFilePath' => storage_path(env('FIREBASE_CREDENTIALS')),
-                'projectId'   => env('FIREBASE_PROJECT_ID'),
-            ]);
-        } catch (\Exception $e) {
-            Log::critical("Koneksi ke Firestore Gagal: " . $e->getMessage());
-            $this->db = null;
-        }
-    }
+            // Target URL halaman kegiatan/berita. Pastikan URL ini benar.
+            $url = 'https://genbicirebon.org/kegiatan';
+            $response = Http::get($url);
 
-    /**
-     * Simpan log percakapan user ↔ chatbot
-     */
-    public function addChatLog(string $sessionId, string $question, string $answer, string $source, $userId = null)
-    {
-        if (!$this->db) return;
-
-        $this->db->collection('chat_logs')->add([
-            'session_id' => $sessionId,
-            'question'   => $question,
-            'answer'     => $answer,
-            'source'     => $source, // "dialogflow" | "firestore" | "openai"
-            'timestamp'  => new Timestamp(new \DateTime()),
-            'user_id'    => $userId,
-        ]);
-    }
-
-    /**
-     * Cari jawaban di knowledge base berdasarkan kemiripan teks.
-     * Menggunakan similar_text() untuk kesederhanaan.
-     * Untuk produksi, pertimbangkan search engine seperti Algolia atau vector database.
-     */
-    public function searchKnowledgeBase(string $query, float $threshold = 75.0)
-    {
-        if (!$this->db) return null;
-
-        $collection = $this->db->collection('knowledge_base');
-        $documents = $collection->documents();
-
-        $bestMatch = null;
-        $highestSimilarity = 0;
-
-        foreach ($documents as $doc) {
-            if (!$doc->exists()) continue;
-
-            $data = $doc->data();
-            $question = $data['question'] ?? '';
-
-            // Hitung persentase kemiripan
-            similar_text(strtolower($query), strtolower($question), $percent);
-
-            if ($percent > $highestSimilarity && $percent >= $threshold) {
-                $highestSimilarity = $percent;
-                $bestMatch = $data['answer'];
+            if (!$response->successful()) {
+                Log::warning("Gagal mengakses {$url}. Status: " . $response->status());
+                return null;
             }
-        }
 
-        return $bestMatch;
+            $crawler = new Crawler($response->body());
+
+            // Selector CSS ini harus disesuaikan dengan struktur HTML website Anda.
+            // Inspeksi halaman web untuk menemukan selector yang tepat.
+            // Contoh ini berasumsi setiap item berita ada di dalam div dengan class '.blog-item'
+            $activities = $crawler->filter('.blog-item')->slice(0, 5)->each(function (Crawler $node) {
+                // Selector untuk judul dan tanggal juga harus disesuaikan.
+                $titleNode = $node->filter('.blog-title a');
+                $title = $titleNode->count() ? $titleNode->text('Judul tidak ditemukan') : 'Judul tidak ditemukan';
+
+                $dateNode = $node->filter('.blog-meta span')->first();
+                $date = $dateNode->count() ? $dateNode->text('Tanggal tidak ditemukan') : 'Tanggal tidak ditemukan';
+
+                return "- {$title} (dipublikasikan sekitar {$date})";
+            });
+
+            if (empty($activities)) {
+                Log::info('Tidak ada item kegiatan yang ditemukan di website menggunakan selector yang ada.');
+                return "Saat ini tidak ada informasi kegiatan terbaru yang bisa ditampilkan dari website.";
+            }
+
+            return "Berikut adalah beberapa kegiatan atau berita terbaru dari website genbicirebon.org:\n" . implode("\n", $activities);
+        } catch (\Exception $e) {
+            Log::error('Scraping Error: ' . $e->getMessage());
+            return null;
+        }
     }
 
-    /**
-     * Tambah entri baru ke knowledge base.
-     */
-    public function addKnowledgeBase(string $question, string $answer)
+    private function fallbackWithOpenAI(string $text, ?string $externalContext = null, bool $suggestionsOnly = false)
     {
-        if (!$this->db) return;
+        $apiKey = env('OPENROUTER_API_KEY');
+        $siteContext = "Kamu adalah 'GenBI Assistant', asisten AI yang ramah, informatif, dan ahli tentang GenBI Cirebon (Generasi Baru Indonesia Cirebon), sebuah komunitas penerima beasiswa Bank Indonesia. Website resmi adalah genbicirebon.org. Jawablah semua pertanyaan dalam konteks ini.";
 
-        // Cek dulu apakah pertanyaan serupa sudah ada untuk menghindari duplikasi
-        // Threshold tinggi (95%) berarti harus sangat mirip untuk dianggap duplikat.
-        if ($this->searchKnowledgeBase($question, 95.0)) {
-            Log::info("Knowledge base untuk '{$question}' sudah ada, tidak ditambahkan.");
-            return;
+        $promptAction = "";
+        if ($suggestionsOnly) {
+            $promptAction = "Tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang relevan dengan pertanyaan pengguna. JANGAN menjawab pertanyaan pengguna.";
+        } else {
+            $promptAction = "Jawab pertanyaan pengguna secara ringkas dan informatif. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan dan sangat singkat (maksimal 4 kata per saran).";
         }
 
-        $this->db->collection('knowledge_base')->add([
-            'question'   => $question,
-            'answer'     => $answer,
-            'source'     => 'openai', // Menandakan ini hasil dari AI
-            'createdAt'  => new Timestamp(new \DateTime()),
-        ]);
+        $contextInjection = "";
+        if ($externalContext) {
+            $contextInjection = "Gunakan informasi tambahan berikut untuk menjawab pertanyaan pengguna secara akurat:\n---INFO TAMBAHAN---\n{$externalContext}\n-------------------\n";
+        }
+
+        $systemPrompt = "{$siteContext} {$contextInjection} {$promptAction} Format respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. Jika hanya diminta saran, isi field 'answer' dengan string kosong.";
+
+        try {
+            $response = Http::timeout(45)->withHeaders([
+                'Authorization' => 'Bearer ' . $apiKey,
+                'Content-Type' => 'application/json',
+                'HTTP-Referer'  => request()->getSchemeAndHttpHost(),
+                'X-Title'       => 'Genbi Cirebon Chatbot',
+            ])->post('https://openrouter.ai/api/v1/chat/completions', [
+                "model" => "openai/gpt-3.5-turbo",
+                "messages" => [
+                    ["role" => "system", "content" => $systemPrompt],
+                    ["role" => "user", "content" => $text]
+                ],
+                "response_format" => ["type" => "json_object"],
+                "temperature" => 0.4,
+                "max_tokens" => 500,
+            ]);
+
+            if ($response->successful()) {
+                $data = json_decode($response->json()['choices'][0]['message']['content'], true);
+                return [
+                    'answer' => $data['answer'] ?? ($suggestionsOnly ? '' : 'Gagal memformat jawaban.'),
+                    'suggestions' => $data['suggestions'] ?? [],
+                ];
+            }
+
+            Log::error('OpenAI Fallback HTTP Error: ' . $response->body());
+            return ['answer' => 'Maaf, saya sedang mengalami kendala teknis (API).', 'suggestions' => []];
+        } catch (\Exception $e) {
+            Log::error('OpenAI Fallback Exception: ' . $e->getMessage());
+            return ['answer' => 'Maaf, koneksi ke asisten AI sedang bermasalah.', 'suggestions' => []];
+        }
+    }
+
+    private function detectIntent(string $text)
+    {
+        try {
+            $projectId = env('DIALOGFLOW_PROJECT_ID');
+            $sessionId = session()->getId();
+            $credentialsPath = storage_path(env('FIREBASE_CREDENTIALS'));
+
+            $sessionsClient = new SessionsClient(['credentials' => $credentialsPath]);
+            $session = $sessionsClient->sessionName($projectId, $sessionId);
+
+            $textInput = (new TextInput())->setText($text)->setLanguageCode('id');
+            $queryInput = (new QueryInput())->setText($textInput);
+
+            $request = (new DetectIntentRequest())
+                ->setSession($session)
+                ->setQueryInput($queryInput);
+
+            $response = $sessionsClient->detectIntent($request);
+            $queryResult = $response->getQueryResult();
+
+            $sessionsClient->close();
+
+            return [
+                'text' => $queryResult->getFulfillmentText(),
+                'is_fallback' => $queryResult->getIntent()->getIsFallback(),
+            ];
+        } catch (\Exception $e) {
+            Log::error("Dialogflow Error: " . $e->getMessage());
+            return null;
+        }
     }
 }
