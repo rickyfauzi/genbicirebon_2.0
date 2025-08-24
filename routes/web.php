@@ -45,6 +45,37 @@ Route::get('/firestore-test', function (\App\Services\FirestoreService $firestor
     return "Firestore mantap";
 });
 
+Route::get('/debug-paths', function () {
+    $credentialsEnv = env('FIREBASE_CREDENTIALS');
+    $paths = [
+        'storage_path_original' => storage_path($credentialsEnv),
+        'storage_path_fixed' => storage_path(str_replace('storage/app/', '', $credentialsEnv)),
+        'base_path' => base_path('storage/app/credentials/firestore-credentials2.json'),
+    ];
+
+    foreach ($paths as $key => $path) {
+        $paths[$key] = [
+            'path' => $path,
+            'exists' => file_exists($path)
+        ];
+    }
+
+    Route::get('/test-firestore', function () {
+        $service = new App\Services\FirestoreService();
+        return response()->json([
+            'connected' => $service->isConnected(),
+            'stats' => $service->getStatistics(),
+        ]);
+    });
+
+    return response()->json([
+        'env_firebase_credentials' => $credentialsEnv,
+        'env_firebase_project' => env('FIREBASE_PROJECT_ID'),
+        'env_dialogflow_project' => env('DIALOGFLOW_PROJECT_ID'),
+        'paths' => $paths,
+    ]);
+});
+
 
 /** for side bar menu active */
 function set_active($route)
