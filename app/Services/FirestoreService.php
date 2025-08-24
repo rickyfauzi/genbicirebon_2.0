@@ -3,95 +3,143 @@
 namespace App\Services;
 
 use Google\Cloud\Firestore\FirestoreClient;
-use Google\Cloud\Core\Timestamp;
+use Google\Cloud\Firestore\FieldValue;
 use Illuminate\Support\Facades\Log;
 
 class FirestoreService
 {
-    protected $db;
+    protected $firestore;
+    protected $knowledgeBase;
+    protected $chatLogs;
+    protected $errorLogs;
 
     public function __construct()
     {
-        try {
-            $this->db = new FirestoreClient([
-                'keyFilePath' => storage_path(env('FIREBASE_CREDENTIALS')),
-                'projectId'   => env('FIREBASE_PROJECT_ID'),
-            ]);
-        } catch (\Exception $e) {
-            Log::critical("Koneksi ke Firestore Gagal: " . $e->getMessage());
-            $this->db = null;
-        }
-    }
-
-    /**
-     * Simpan log percakapan user ↔ chatbot
-     */
-    public function addChatLog(string $sessionId, string $question, string $answer, string $source, $userId = null)
-    {
-        if (!$this->db) return;
-
-        $this->db->collection('chat_logs')->add([
-            'session_id' => $sessionId,
-            'question'   => $question,
-            'answer'     => $answer,
-            'source'     => $source, // "dialogflow" | "firestore" | "openai"
-            'timestamp'  => new Timestamp(new \DateTime()),
-            'user_id'    => $userId,
+        $this->firestore = new FirestoreClient([
+            'keyFilePath' => storage_path(env('FIREBASE_CREDENTIALS')),
+            'projectId' => env('DIALOGFLOW_PROJECT_ID'),
         ]);
+
+        $this->knowledgeBase = $this->firestore->collection('knowledge_base');
+        $this->chatLogs = $this->firestore->collection('chat_logs');
+        $this->errorLogs = $this->firestore->collection('error_logs');
     }
 
     /**
-     * Cari jawaban di knowledge base berdasarkan kemiripan teks.
-     * Menggunakan similar_text() untuk kesederhanaan.
-     * Untuk produksi, pertimbangkan search engine seperti Algolia atau vector database.
+     * Mencari jawaban di knowledge base menggunakan pencarian kata kunci.
+     *
+     * @param string $questionText
+     * @return string|null
      */
-    public function searchKnowledgeBase(string $query, float $threshold = 75.0)
+    public function searchKnowledgeBase(string $questionText): ?string
     {
-        if (!$this->db) return null;
+        // 1. Normalisasi dan ekstraksi kata kunci dari pertanyaan pengguna
+        $keywords = $this->extractKeywords($questionText);
 
-        $collection = $this->db->collection('knowledge_base');
-        $documents = $collection->documents();
+        if (empty($keywords)) {
+            return null;
+        }
+
+        // 2. Cari dokumen yang mengandung salah satu dari kata kunci tersebut
+        // Catatan: Firestore 'whereArrayContainsAny' hanya bisa mencari hingga 10 nilai dalam satu query.
+        $query = $this->knowledgeBase->where('keywords', 'array-contains-any', array_slice($keywords, 0, 10));
+        $documents = $query->documents();
 
         $bestMatch = null;
-        $highestSimilarity = 0;
+        $highestScore = 0;
 
-        foreach ($documents as $doc) {
-            if (!$doc->exists()) continue;
+        // 3. Cari dokumen dengan skor kecocokan tertinggi
+        foreach ($documents as $document) {
+            if ($document->exists()) {
+                $docData = $document->data();
+                $docKeywords = $docData['keywords'] ?? [];
 
-            $data = $doc->data();
-            $question = $data['question'] ?? '';
+                // Hitung skor berdasarkan jumlah kata kunci yang cocok
+                $score = count(array_intersect($keywords, $docKeywords));
 
-            // Hitung persentase kemiripan
-            similar_text(strtolower($query), strtolower($question), $percent);
-
-            if ($percent > $highestSimilarity && $percent >= $threshold) {
-                $highestSimilarity = $percent;
-                $bestMatch = $data['answer'];
+                if ($score > $highestScore) {
+                    $highestScore = $score;
+                    $bestMatch = $docData;
+                }
             }
         }
 
-        return $bestMatch;
+        // 4. Jika ditemukan kecocokan yang cukup baik (misal > 2 kata kunci), kembalikan jawabannya
+        if ($bestMatch && $highestScore > 1) { // Atur ambang batas skor di sini
+            Log::info("Kecocokan ditemukan di KB dengan skor {$highestScore}. Pertanyaan: '{$bestMatch['question']}'");
+            return $bestMatch['answer'];
+        }
+
+        return null;
     }
 
     /**
-     * Tambah entri baru ke knowledge base.
+     * Menambahkan pengetahuan baru ke Firestore, termasuk membuat keywords.
+     *
+     * @param string $question
+     * @param string $answer
      */
     public function addKnowledgeBase(string $question, string $answer)
     {
-        if (!$this->db) return;
-
-        // Cek dulu apakah pertanyaan serupa sudah ada untuk menghindari duplikasi
-        // Threshold tinggi (95%) berarti harus sangat mirip untuk dianggap duplikat.
-        if ($this->searchKnowledgeBase($question, 95.0)) {
-            Log::info("Knowledge base untuk '{$question}' sudah ada, tidak ditambahkan.");
+        // Hindari duplikasi pertanyaan yang sama persis
+        $exactQuery = $this->knowledgeBase->where('question', '=', $question)->limit(1);
+        if (!$exactQuery->documents()->isEmpty()) {
+            Log::warning("Mencoba menambahkan duplikat knowledge base untuk: '{$question}'");
             return;
         }
 
-        $this->db->collection('knowledge_base')->add([
-            'question'   => $question,
-            'answer'     => $answer,
-            'source'     => 'openai', // Menandakan ini hasil dari AI
-            'createdAt'  => new Timestamp(new \DateTime()),
+        $data = [
+            'question' => $question,
+            'answer' => $answer,
+            'category' => 'General', // atau kategori lain
+            'keywords' => $this->extractKeywords($question),
+            'created_at' => FieldValue::serverTimestamp(),
+        ];
+
+        $this->knowledgeBase->add($data);
+    }
+
+    // Fungsi-fungsi lain untuk logging
+    public function addChatLog($sessionId, $question, $answer, $source, $userId = null)
+    {
+        $this->chatLogs->add([
+            'session_id' => $sessionId,
+            'question' => $question,
+            'answer' => $answer,
+            'source' => $source,
+            'user_id' => $userId,
+            'timestamp' => FieldValue::serverTimestamp(),
         ]);
+    }
+
+    public function addErrorLog($errorMessage, $userMessage)
+    {
+        $this->errorLogs->add([
+            'error_message' => $errorMessage,
+            'user_message' => $userMessage,
+            'timestamp' => FieldValue::serverTimestamp(),
+        ]);
+    }
+
+    /**
+     * Helper function untuk mengubah teks menjadi array kata kunci yang bersih.
+     *
+     * @param string $text
+     * @return array
+     */
+    private function extractKeywords(string $text): array
+    {
+        // Hapus tanda baca dan ubah ke huruf kecil
+        $text = strtolower(preg_replace('/[^\p{L}\p{N}\s]/u', '', $text));
+
+        // Daftar kata-kata umum (stopwords) dalam Bahasa Indonesia yang akan diabaikan
+        $stopwords = ['di', 'ke', 'dari', 'yang', 'dan', 'atau', 'tapi', 'adalah', 'yaitu', 'dengan', 'ini', 'itu', 'saya', 'kamu', 'dia', 'apa', 'siapa', 'kapan', 'dimana', 'bagaimana', 'mengapa', 'tolong', 'jelaskan'];
+
+        // Pisahkan menjadi kata-kata, filter kata kosong, dan hapus stopwords
+        $keywords = array_filter(explode(' ', $text));
+        $keywords = array_diff($keywords, $stopwords);
+
+        // Kembalikan nilai unik untuk menghindari duplikasi
+        return array_values(array_unique($keywords));
     }
 }
