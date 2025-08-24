@@ -104,9 +104,7 @@ class ChatbotController extends Controller
 
             $crawler = new Crawler($response->body());
 
-            // Selector CSS ini harus disesuaikan dengan struktur HTML website Anda.
-            // Inspeksi halaman web untuk menemukan selector yang tepat.
-            // Contoh ini berasumsi setiap item berita ada di dalam div dengan class '.blog-item'
+
             $activities = $crawler->filter('.blog-item')->slice(0, 5)->each(function (Crawler $node) {
                 // Selector untuk judul dan tanggal juga harus disesuaikan.
                 $titleNode = $node->filter('.blog-title a');
@@ -187,8 +185,8 @@ class ChatbotController extends Controller
         try {
             $projectId = env('DIALOGFLOW_PROJECT_ID');
             $sessionId = session()->getId();
-            $credentialsPath = storage_path(env('FIREBASE_CREDENTIALS'));
-
+            // di dalam fungsi detectIntent
+            $credentialsPath = base_path(env('FIREBASE_CREDENTIALS'));
             $sessionsClient = new SessionsClient(['credentials' => $credentialsPath]);
             $session = $sessionsClient->sessionName($projectId, $sessionId);
 
