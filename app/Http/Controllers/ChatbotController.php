@@ -219,7 +219,7 @@ class ChatbotController extends Controller
     {
         try {
             $projectId = env('DIALOGFLOW_PROJECT_ID');
-            $credentialsPath = storage_path(env('DIALOGFLOW_CREDENTIALS'));
+            $credentialsPath = base_path(env('DIALOGFLOW_CREDENTIALS'));
             $sessionId = uniqid('test-');
 
             Log::info("Menguji Dialogflow dengan project: {$projectId}, credentials: {$credentialsPath}");
