@@ -52,7 +52,7 @@ class FirestoreService
 
         try {
             $docRef = $this->db->collection("testdata")->add([
-                "message"    => "Hello Firestore",
+                "message"    => "Hello de",
                 "created_at" => FieldValue::serverTimestamp(),
             ]);
 
