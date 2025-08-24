@@ -3,95 +3,147 @@
 namespace App\Services;
 
 use Google\Cloud\Firestore\FirestoreClient;
-use Google\Cloud\Core\Timestamp;
+use Google\Cloud\Firestore\FieldValue;
 use Illuminate\Support\Facades\Log;
 
 class FirestoreService
 {
     protected $db;
+    protected $isConnected = false;
 
     public function __construct()
     {
         try {
+            $credentialsPath = base_path(env('FIREBASE_CREDENTIALS'));
+            $projectId       = env('FIREBASE_PROJECT_ID');
+
+            if (!file_exists($credentialsPath)) {
+                throw new \Exception("❌ Firebase credentials file not found: {$credentialsPath}");
+            }
+
+            if (empty($projectId)) {
+                throw new \Exception("❌ FIREBASE_PROJECT_ID missing in .env");
+            }
+
             $this->db = new FirestoreClient([
-                'keyFilePath' => storage_path(env('FIREBASE_CREDENTIALS')),
-                'projectId'   => env('FIREBASE_PROJECT_ID'),
+                'keyFilePath' => $credentialsPath,
+                'projectId'   => $projectId,
             ]);
+
+            $this->isConnected = true;
+            Log::info("✅ Firestore connected: {$projectId}");
         } catch (\Exception $e) {
-            Log::critical("Koneksi ke Firestore Gagal: " . $e->getMessage());
+            Log::critical("❌ Firestore init failed: " . $e->getMessage());
             $this->db = null;
+            $this->isConnected = false;
         }
     }
 
-    /**
-     * Simpan log percakapan user ↔ chatbot
-     */
-    public function addChatLog(string $sessionId, string $question, string $answer, string $source, $userId = null)
+    public function isConnected(): bool
     {
-        if (!$this->db) return;
-
-        $this->db->collection('chat_logs')->add([
-            'session_id' => $sessionId,
-            'question'   => $question,
-            'answer'     => $answer,
-            'source'     => $source, // "dialogflow" | "firestore" | "openai"
-            'timestamp'  => new Timestamp(new \DateTime()),
-            'user_id'    => $userId,
-        ]);
+        return $this->isConnected && $this->db !== null;
     }
 
-    /**
-     * Cari jawaban di knowledge base berdasarkan kemiripan teks.
-     * Menggunakan similar_text() untuk kesederhanaan.
-     * Untuk produksi, pertimbangkan search engine seperti Algolia atau vector database.
-     */
-    public function searchKnowledgeBase(string $query, float $threshold = 75.0)
+    public function testConnection(): array
     {
-        if (!$this->db) return null;
+        if (!$this->isConnected()) {
+            return ["status" => "error", "message" => "Firestore not connected"];
+        }
 
-        $collection = $this->db->collection('knowledge_base');
-        $documents = $collection->documents();
+        try {
+            $docRef = $this->db->collection("testdata")->add([
+                "message"    => "Hello Firestore",
+                "created_at" => FieldValue::serverTimestamp(),
+            ]);
 
-        $bestMatch = null;
-        $highestSimilarity = 0;
+            return [
+                "status"  => "success",
+                "message" => "✅ Firestore connection OK & test data saved (Doc ID: {$docRef->id()})"
+            ];
+        } catch (\Exception $e) {
+            Log::error("❌ Firestore testConnection error: " . $e->getMessage());
+            return ["status" => "error", "message" => $e->getMessage()];
+        }
+    }
 
-        foreach ($documents as $doc) {
-            if (!$doc->exists()) continue;
+    public function addKnowledgeBase(string $question, string $answer): bool
+    {
+        if (!$this->isConnected()) return false;
 
-            $data = $doc->data();
-            $question = $data['question'] ?? '';
+        try {
+            $trimmedQuestion = trim($question);
 
-            // Hitung persentase kemiripan
-            similar_text(strtolower($query), strtolower($question), $percent);
+            $query = $this->db->collection('knowledge_base')
+                ->where('question', '=', $trimmedQuestion)->limit(1);
 
-            if ($percent > $highestSimilarity && $percent >= $threshold) {
-                $highestSimilarity = $percent;
-                $bestMatch = $data['answer'];
+            if (!$query->documents()->isEmpty()) {
+                Log::info("⚠️ KB already exists: {$trimmedQuestion}");
+                return false;
+            }
+
+            $docRef = $this->db->collection('knowledge_base')->add([
+                'question'   => $trimmedQuestion,
+                'answer'     => trim($answer),
+                'keywords'   => $this->extractKeywords($trimmedQuestion),
+                'source'     => 'openai_fallback',
+                'created_at' => FieldValue::serverTimestamp(),
+                'category'   => $this->categorizeQuestion($trimmedQuestion),
+            ]);
+
+            Log::info("✅ KB entry stored: {$trimmedQuestion} (Doc: {$docRef->id()})");
+            return true;
+        } catch (\Exception $e) {
+            Log::error("❌ addKnowledgeBase error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    public function addChatLog(string $sessionId, string $question, string $answer, string $source, $userId = null): bool
+    {
+        if (!$this->isConnected()) return false;
+
+        try {
+            $docRef = $this->db->collection('chat_logs')->add([
+                'session_id' => $sessionId,
+                'question'   => $question,
+                'answer'     => $answer,
+                'source'     => $source,
+                'timestamp'  => FieldValue::serverTimestamp(),
+                'user_id'    => $userId,
+            ]);
+
+            Log::info("💬 Chat log saved: {$docRef->id()}");
+            return true;
+        } catch (\Exception $e) {
+            Log::error("❌ addChatLog error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function extractKeywords(string $text): array
+    {
+        $text = strtolower(preg_replace('/[^\p{L}\p{N}\s]/u', '', $text));
+        $stopwords = ['di', 'ke', 'dari', 'yang', 'dan', 'atau', 'tapi', 'adalah', 'yaitu', 'dengan', 'ini', 'itu', 'apa', 'siapa', 'kapan', 'dimana', 'bagaimana', 'mengapa', 'tentang'];
+        $keywords = array_filter(explode(' ', $text));
+        return array_values(array_diff(array_unique($keywords), $stopwords));
+    }
+
+    private function categorizeQuestion(string $question): string
+    {
+        $q = strtolower($question);
+        $categories = [
+            'beasiswa' => ['beasiswa', 'scholarship', 'bantuan'],
+            'kegiatan' => ['kegiatan', 'acara', 'event', 'program'],
+            'pendaftaran' => ['daftar', 'registrasi', 'syarat', 'pendaftaran'],
+            'informasi_umum' => ['apa', 'siapa', 'dimana', 'kapan', 'bagaimana'],
+            'kontak' => ['kontak', 'alamat', 'telepon', 'email'],
+            'sejarah' => ['sejarah', 'awal', 'didirikan', 'berdiri'],
+        ];
+        foreach ($categories as $cat => $words) {
+            foreach ($words as $w) {
+                if (strpos($q, $w) !== false) return $cat;
             }
         }
-
-        return $bestMatch;
-    }
-
-    /**
-     * Tambah entri baru ke knowledge base.
-     */
-    public function addKnowledgeBase(string $question, string $answer)
-    {
-        if (!$this->db) return;
-
-        // Cek dulu apakah pertanyaan serupa sudah ada untuk menghindari duplikasi
-        // Threshold tinggi (95%) berarti harus sangat mirip untuk dianggap duplikat.
-        if ($this->searchKnowledgeBase($question, 95.0)) {
-            Log::info("Knowledge base untuk '{$question}' sudah ada, tidak ditambahkan.");
-            return;
-        }
-
-        $this->db->collection('knowledge_base')->add([
-            'question'   => $question,
-            'answer'     => $answer,
-            'source'     => 'openai', // Menandakan ini hasil dari AI
-            'createdAt'  => new Timestamp(new \DateTime()),
-        ]);
+        return 'umum';
     }
 }
