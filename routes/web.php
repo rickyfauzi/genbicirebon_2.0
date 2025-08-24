@@ -45,7 +45,8 @@ Route::get('/firestore-test', function (\App\Services\FirestoreService $firestor
     return "Firestore mantap";
 });
 
-
+Route::post('/chatbot/dialogflow-only', [ChatbotController::class, 'sendMessageDialogflowOnly']);
+Route::get('/chatbot/test-training-phrases', [ChatbotController::class, 'testTrainingPhrases']);
 
 
 /** for side bar menu active */
@@ -61,8 +62,6 @@ Route::get('chatbot', [ChatbotController::class, 'index'])->name('chatbot.index'
 
 // Rute untuk menerima pesan dari user dan mengirimkannya ke Dialogflow
 Route::post('chatbot', [ChatbotController::class, 'sendMessage'])->name('chatbot.sendMessage');
-Route::get('/test-dialogflow', [ChatbotController::class, 'testDialogflow']);
-Route::get('/test-firestore', [ChatbotController::class, 'testFirestore']);
 
 Route::get('/', [FrontendController::class, 'index'])->name('index');
 

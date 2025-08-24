@@ -266,8 +266,8 @@ class ChatbotController extends Controller
     {
         try {
             $projectId = env('DIALOGFLOW_PROJECT_ID');
-            // PERBAIKAN: Path kredensial yang benar
-            $credentialsPath = storage_path('app/credentials/websitebot.json');
+            // PERBAIKAN: Menggunakan path dari env variable
+            $credentialsPath = storage_path(env('DIALOGFLOW_CREDENTIALS'));
             $sessionId = uniqid('test-');
 
             // Verifikasi file exists
@@ -320,8 +320,8 @@ class ChatbotController extends Controller
     public function testFirestore()
     {
         try {
-            // PERBAIKAN: Path kredensial yang benar
-            $credentialsPath = storage_path('app/credentials/firestore-credentials2.json');
+            // PERBAIKAN: Menggunakan path dari env variable
+            $credentialsPath = storage_path(env('FIREBASE_CREDENTIALS'));
             $projectId = env('FIREBASE_PROJECT_ID');
 
             // Verifikasi file exists
@@ -357,5 +357,120 @@ class ChatbotController extends Controller
                 'message' => 'Gagal menghubungkan ke Firestore: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Endpoint khusus untuk testing Dialogflow secara isolated
+     * Route: POST /chatbot/dialogflow-only
+     */
+    public function sendMessageDialogflowOnly(Request $request)
+    {
+        $message = $request->input('message');
+        $sessionId = $request->input('session_id', session()->getId());
+
+        $response = [
+            'message' => 'Dialogflow tidak memberikan respons',
+            'source' => 'dialogflow_fail',
+            'debug_info' => [],
+        ];
+
+        try {
+            Log::info("🎯 DIALOGFLOW ONLY TEST - Input: '{$message}', Session: {$sessionId}");
+
+            $dialogflowResponse = $this->detectIntent($message);
+
+            if ($dialogflowResponse) {
+                $response['message'] = $dialogflowResponse['text'] ?: 'Dialogflow mengembalikan respons kosong';
+                $response['source'] = $dialogflowResponse['is_fallback'] ? 'dialogflow_fallback' : 'dialogflow_success';
+                $response['debug_info'] = [
+                    'intent_name' => $dialogflowResponse['intent_name'] ?? 'unknown',
+                    'confidence' => $dialogflowResponse['confidence'] ?? 0,
+                    'is_fallback' => $dialogflowResponse['is_fallback'] ?? true,
+                    'fulfillment_text' => $dialogflowResponse['text'] ?? '',
+                ];
+
+                Log::info("🎯 DIALOGFLOW RESPONSE", $response['debug_info']);
+            } else {
+                $response['message'] = 'Dialogflow gagal total - tidak ada respons';
+                $response['source'] = 'dialogflow_error';
+                $response['debug_info'] = ['error' => 'No response from Dialogflow'];
+
+                Log::error("🎯 DIALOGFLOW FAILED - No response returned");
+            }
+        } catch (\Exception $e) {
+            Log::error('🎯 DIALOGFLOW ONLY ERROR: ' . $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine());
+
+            $response['message'] = 'Error: ' . $e->getMessage();
+            $response['source'] = 'dialogflow_exception';
+            $response['debug_info'] = [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ];
+        }
+
+        return response()->json($response);
+    }
+
+    /**
+     * Test multiple training phrases untuk Dialogflow
+     * Route: GET /chatbot/test-training-phrases
+     */
+    public function testTrainingPhrases()
+    {
+        $testPhrases = [
+            'Apa itu GenBI?',
+            'GenBI artinya apa?',
+            'Ceritain tentang GenBI dong',
+            'Definisi GenBI',
+            'GenBI kepanjangan dari apa?',
+            'Bisa jelasin tentang GenBI?',
+            'GenBI itu apa sih?',
+            'Maksud GenBI apa?',
+            'Pengertian GenBI',
+            'Info GenBI',
+            'Halo',
+            'Hai',
+            'Selamat pagi',
+            'Random question tidak ada di training',
+        ];
+
+        $results = [];
+
+        foreach ($testPhrases as $phrase) {
+            try {
+                $dialogflowResponse = $this->detectIntent($phrase);
+
+                $results[] = [
+                    'input' => $phrase,
+                    'success' => $dialogflowResponse !== null,
+                    'response' => $dialogflowResponse['text'] ?? null,
+                    'intent' => $dialogflowResponse['intent_name'] ?? null,
+                    'confidence' => $dialogflowResponse['confidence'] ?? 0,
+                    'is_fallback' => $dialogflowResponse['is_fallback'] ?? true,
+                ];
+
+                // Delay kecil untuk menghindari rate limit
+                usleep(500000); // 0.5 detik
+
+            } catch (\Exception $e) {
+                $results[] = [
+                    'input' => $phrase,
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return response()->json([
+            'total_tests' => count($testPhrases),
+            'results' => $results,
+            'summary' => [
+                'successful' => count(array_filter($results, fn($r) => $r['success'] ?? false)),
+                'failed' => count(array_filter($results, fn($r) => !($r['success'] ?? false))),
+                'fallback_triggered' => count(array_filter($results, fn($r) => ($r['is_fallback'] ?? true) && ($r['success'] ?? false))),
+                'proper_intents' => count(array_filter($results, fn($r) => !($r['is_fallback'] ?? true) && ($r['success'] ?? false))),
+            ],
+        ]);
     }
 }
