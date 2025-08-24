@@ -187,7 +187,7 @@ class ChatbotController extends Controller
     private function detectIntent(string $text)
     {
         try {
-            $projectId = env('DIALOGFLOW_PROJECT_ID');
+            $projectId = 'websitebot-etqi';
             $sessionId = session()->getId();
             $credentialsPath = storage_path(env('FIREBASE_CREDENTIALS'));
 
