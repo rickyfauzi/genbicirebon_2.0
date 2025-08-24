@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Auth\Events\PasswordReset;
 use Kreait\Firebase\Factory;
 use App\Http\Controllers\WebhookController;
+use App\Services\FirestoreService;
 use Google\Cloud\Dialogflow\V2\SessionsClient;
 
 
@@ -44,6 +45,33 @@ Route::get('/firestore-test', function (\App\Services\FirestoreService $firestor
     $firestore->addChatLog("test-session", "Halo?", "Hai juga!", "manual");
     return "Firestore mantap";
 });
+
+Route::post('/chatbot/send', [ChatbotController::class, 'sendMessage'])->name('chatbot.send');
+
+// 🔹 Route test Firestore connection
+Route::get('/firebase/test', function (FirestoreService $firestore) {
+    try {
+        $firestore->addKnowledgeBase("test_question", "test_answer");
+        return response()->json([
+            'status' => 'success',
+            'message' => '✅ Firestore connection OK & data test disimpan.',
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => $e->getMessage(),
+        ], 500);
+    }
+});
+
+// 🔹 Route test Dialogflow detectIntent
+Route::get('/dialogflow/test', [ChatbotController::class, function (ChatbotController $controller) {
+    $result = $controller->detectIntent("halo");
+    return response()->json([
+        'status' => $result ? 'success' : 'error',
+        'response' => $result,
+    ]);
+}]);
 
 
 /** for side bar menu active */
