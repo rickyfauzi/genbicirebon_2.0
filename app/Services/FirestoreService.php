@@ -41,6 +41,39 @@ class FirestoreService
     }
 
     /**
+     * Hapus seluruh data di knowledge_base
+     */
+    public function resetKnowledgeBase(): bool
+    {
+        if (!$this->isConnected()) {
+            Log::warning("Cannot reset knowledge base: Firestore not connected");
+            return false;
+        }
+
+        try {
+            $collection = $this->db->collection('knowledge_base');
+            $documents = $collection->documents();
+
+            $deleted = 0;
+            foreach ($documents as $document) {
+                if ($document->exists()) {
+                    $document->reference()->delete();
+                    $deleted++;
+                }
+            }
+
+            Log::info("✅ Knowledge base berhasil direset. Total dokumen dihapus: {$deleted}");
+            return true;
+        } catch (\Exception $e) {
+            Log::error("❌ Gagal reset knowledge base: " . $e->getMessage());
+            return false;
+        }
+    }
+
+
+
+
+    /**
      * Check if Firestore is connected
      */
     public function isConnected(): bool
