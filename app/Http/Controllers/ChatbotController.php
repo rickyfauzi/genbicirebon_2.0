@@ -176,7 +176,7 @@ class ChatbotController extends Controller
             $intentName = $queryResult->getIntent() ? $queryResult->getIntent()->getDisplayName() : 'No Intent';
             $isFallback = $queryResult->getIntent() ? $queryResult->getIntent()->getIsFallback() : true;
             $confidence = $queryResult->getIntentDetectionConfidence();
-            Log::info("Dialogflow Response - Intent: '{$intentName}', Text: '{$fulfillmentText}', Fallback: {$isFallback}, Confidence: {$confidence}");
+            // Log::info("Dialogflow Response - Intent: '{$intentName}', Text: '{$fulfillmentText}', Fallback: {$isFallback}, Confidence: {$confidence}");
             $sessionsClient->close();
             return [
                 'text' => $fulfillmentText,
