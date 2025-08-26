@@ -49,9 +49,9 @@ class FirestoreService
     }
 
     /**
-     * Simpan log percakapan user ↔ chatbot
+     * Enhanced chat log with category tracking.
      */
-    public function addChatLog(string $sessionId, string $question, string $answer, string $source, $userId = null): bool
+    public function addChatLog(string $sessionId, string $question, string $answer, string $source, $userId = null, string $category = 'umum'): bool
     {
         if (!$this->isConnected()) {
             Log::warning("Cannot save chat log: Firestore not connected");
@@ -63,13 +63,14 @@ class FirestoreService
                 'session_id' => $sessionId,
                 'question' => $question,
                 'answer' => $answer,
-                'source' => $source, // "dialogflow" | "firestore" | "openai"
+                'source' => $source, // "dialogflow" | "firestore" | "openai" | "openai_fail"
+                'category' => $category, // Add category for better analysis
                 'timestamp' => new Timestamp(new \DateTime()),
                 'user_id' => $userId,
             ];
 
             $docRef = $this->db->collection('chat_logs')->add($data);
-            Log::info("Chat log saved with ID: " . $docRef->id());
+            Log::info("Chat log saved with category '{$category}' and ID: " . $docRef->id());
             return true;
         } catch (\Exception $e) {
             Log::error("Failed to save chat log: " . $e->getMessage());
@@ -78,7 +79,7 @@ class FirestoreService
     }
 
     /**
-     * Cari jawaban di knowledge base berdasarkan kemiripan semantik menggunakan embedding jika tersedia, fallback ke teks similarity.
+     * Search knowledge base using semantic and text similarity.
      */
     public function searchKnowledgeBase(string $query, float $semanticThreshold = 0.8, float $textThreshold = 60.0): ?string
     {
@@ -120,7 +121,6 @@ class FirestoreService
                 }
 
                 if ($similarity < $semanticThreshold) {
-                    // Fallback to text similarity
                     similar_text(strtolower(trim($query)), strtolower(trim($question)), $percent);
                     $similarity = $percent / 100;
                     Log::info("📍 Text similarity: {$similarity} with '{$question}'");
@@ -132,7 +132,7 @@ class FirestoreService
                 }
             }
 
-            Log::info("Knowledge base search completed. Total docs: {$totalDocs}, Best match: {$highestSimilarity}");
+            Log::info("Knowledge base search completed. Total docs: {$totalDocs}, Best match similarity: {$highestSimilarity}");
 
             if ($bestMatch) {
                 Log::info("✅ Knowledge base match found with {$highestSimilarity} similarity");
@@ -148,9 +148,9 @@ class FirestoreService
     }
 
     /**
-     * Tambah entri baru ke knowledge base dengan embedding.
+     * Add a new entry to the knowledge base with a specified category.
      */
-    public function addKnowledgeBase(string $question, string $answer): bool
+    public function addKnowledgeBase(string $question, string $answer, string $category): bool
     {
         if (!$this->isConnected()) {
             Log::warning("Cannot add to knowledge base: Firestore not connected");
@@ -158,11 +158,10 @@ class FirestoreService
         }
 
         try {
-            // Cek dulu apakah pertanyaan serupa sudah ada untuk menghindari duplikasi
             $existingAnswer = $this->searchKnowledgeBase($question, 0.95, 95.0);
             if ($existingAnswer) {
                 Log::info("Knowledge base entry already exists for similar question: '{$question}'");
-                return false; // Tidak error, tapi tidak perlu ditambahkan
+                return false;
             }
 
             $embedding = $this->getEmbedding(trim($question));
@@ -172,7 +171,7 @@ class FirestoreService
                 'answer' => trim($answer),
                 'source' => 'openai',
                 'created_at' => new Timestamp(new \DateTime()),
-                'category' => $this->categorizeQuestion($question),
+                'category' => $category, // Use category from controller
             ];
 
             if (!empty($embedding)) {
@@ -189,60 +188,137 @@ class FirestoreService
     }
 
     /**
-     * Hitung cosine similarity antara dua vektor.
+     * Update system metrics with source and category breakdown.
      */
-    private function cosineSimilarity(array $a, array $b): float
+    public function updateSystemMetrics(string $source, string $category): bool
     {
-        $dot = 0.0;
-        $normA = 0.0;
-        $normB = 0.0;
-
-        for ($i = 0; $i < count($a); $i++) {
-            $dot += $a[$i] * $b[$i];
-            $normA += $a[$i] * $a[$i];
-            $normB += $b[$i] * $b[$i];
+        if (!$this->isConnected()) {
+            return false;
         }
 
-        if ($normA == 0 || $normB == 0) {
-            return 0.0;
-        }
+        try {
+            $today = date('Y-m-d');
+            $docRef = $this->db->collection('system_metrics')->document($today);
+            $doc = $docRef->snapshot();
 
-        return $dot / (sqrt($normA) * sqrt($normB));
+            $data = $doc->exists() ? $doc->data() : [
+                'date' => $today,
+                'total_queries' => 0,
+                'category_queries' => [],
+                'source_hits' => [],
+                'created_at' => new Timestamp(new \DateTime()),
+            ];
+
+            // Update counts
+            $data['total_queries'] = ($data['total_queries'] ?? 0) + 1;
+            $data['category_queries'][$category] = ($data['category_queries'][$category] ?? 0) + 1;
+            $data['source_hits'][$source]['total'] = ($data['source_hits'][$source]['total'] ?? 0) + 1;
+            $data['source_hits'][$source]['categories'][$category] = ($data['source_hits'][$source]['categories'][$category] ?? 0) + 1;
+
+            $docRef->set($data);
+            return true;
+        } catch (\Exception $e) {
+            Log::error("Failed to update system metrics: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
-     * Dapatkan embedding dari OpenAI.
+     * Get recent conversation history for a session.
      */
-    private function getEmbedding(string $text): array
+    public function getConversationHistory(string $sessionId, int $limit = 3): array
     {
-        $apiKey = env('OPENAI_API_KEY');
-        if (empty($apiKey) || empty($text)) {
+        if (!$this->isConnected()) {
+            Log::warning("Cannot get conversation history: Firestore not connected");
             return [];
         }
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $apiKey,
-                'Content-Type' => 'application/json',
-            ])->post('https://api.openai.com/v1/embeddings', [
-                'model' => 'text-embedding-3-small',
-                'input' => $text,
-            ]);
+            $query = $this->db->collection('chat_logs')
+                ->where('session_id', '=', $sessionId)
+                ->orderBy('timestamp', 'DESC')
+                ->limit($limit);
 
-            if ($response->successful()) {
-                return $response->json()['data'][0]['embedding'];
+            $documents = $query->documents();
+            $history = [];
+            foreach ($documents as $doc) {
+                if ($doc->exists()) {
+                    $data = $doc->data();
+                    $history[] = [
+                        'user' => $data['question'] ?? '',
+                        'assistant' => $data['answer'] ?? '',
+                    ];
+                }
             }
 
-            Log::error('OpenAI Embedding HTTP Error: ' . $response->body());
-            return [];
+            // Reverse to get chronological order (oldest first) for context
+            return array_reverse($history);
         } catch (\Exception $e) {
-            Log::error('OpenAI Embedding Exception: ' . $e->getMessage());
+            Log::error("Failed to get conversation history: " . $e->getMessage());
             return [];
         }
     }
 
     /**
-     * Simpan log error
+     * Get aggregated performance analytics for a given number of days.
+     */
+    public function getPerformanceAnalytics(int $days = 7): array
+    {
+        if (!$this->isConnected()) {
+            Log::warning("Cannot get performance analytics: Firestore not connected");
+            return [];
+        }
+
+        try {
+            $endDate = new \DateTime('today');
+            $startDate = (new \DateTime('today'))->sub(new \DateInterval('P' . ($days - 1) . 'D'));
+
+            $query = $this->db->collection('system_metrics')
+                ->where('date', '>=', $startDate->format('Y-m-d'))
+                ->where('date', '<=', $endDate->format('Y-m-d'));
+
+            $documents = $query->documents();
+
+            $analytics = [
+                'total_queries' => 0,
+                'source_hits' => [],
+                'category_queries' => [],
+                'daily_data' => [],
+            ];
+
+            foreach ($documents as $doc) {
+                if (!$doc->exists()) continue;
+
+                $data = $doc->data();
+                $date = $data['date'];
+
+                $analytics['total_queries'] += $data['total_queries'] ?? 0;
+
+                foreach ($data['source_hits'] ?? [] as $source => $hits) {
+                    $analytics['source_hits'][$source] = ($analytics['source_hits'][$source] ?? 0) + ($hits['total'] ?? 0);
+                }
+
+                foreach ($data['category_queries'] ?? [] as $category => $count) {
+                    $analytics['category_queries'][$category] = ($analytics['category_queries'][$category] ?? 0) + $count;
+                }
+
+                $analytics['daily_data'][$date] = [
+                    'total_queries' => $data['total_queries'] ?? 0,
+                    'source_hits' => $data['source_hits'] ?? [],
+                ];
+            }
+
+            ksort($analytics['daily_data']);
+
+            return $analytics;
+        } catch (\Exception $e) {
+            Log::error("Failed to get performance analytics: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Save error log to Firestore.
      */
     public function addErrorLog(string $errorMessage, string $userMessage = '', array $context = []): bool
     {
@@ -270,128 +346,47 @@ class FirestoreService
         }
     }
 
-    /**
-     * Update system metrics
-     */
-    public function updateSystemMetrics(string $source): bool
+    // --- Helper and Unchanged Methods ---
+
+    private function cosineSimilarity(array $a, array $b): float
     {
-        if (!$this->isConnected()) {
-            return false;
+        $dot = 0.0;
+        $normA = 0.0;
+        $normB = 0.0;
+
+        for ($i = 0; $i < count($a); $i++) {
+            $dot += $a[$i] * $b[$i];
+            $normA += $a[$i] * $a[$i];
+            $normB += $b[$i] * $b[$i];
         }
 
-        try {
-            $today = date('Y-m-d');
-            $docRef = $this->db->collection('system_metrics')->document($today);
-
-            $doc = $docRef->snapshot();
-
-            if ($doc->exists()) {
-                // Update existing metrics
-                $data = $doc->data();
-                $data['total_queries'] = ($data['total_queries'] ?? 0) + 1;
-
-                switch ($source) {
-                    case 'dialogflow':
-                        $data['dialogflow_success'] = ($data['dialogflow_success'] ?? 0) + 1;
-                        break;
-                    case 'firestore':
-                        $data['firestore_success'] = ($data['firestore_success'] ?? 0) + 1;
-                        break;
-                    case 'openai':
-                        $data['openai_fallback'] = ($data['openai_fallback'] ?? 0) + 1;
-                        break;
-                }
-
-                $docRef->set($data, ['merge' => true]);
-            } else {
-                // Create new metrics
-                $data = [
-                    'date' => $today,
-                    'total_queries' => 1,
-                    'dialogflow_success' => $source === 'dialogflow' ? 1 : 0,
-                    'firestore_success' => $source === 'firestore' ? 1 : 0,
-                    'openai_fallback' => $source === 'openai' ? 1 : 0,
-                    'created_at' => new Timestamp(new \DateTime()),
-                ];
-
-                $docRef->set($data);
-            }
-
-            return true;
-        } catch (\Exception $e) {
-            Log::error("Failed to update system metrics: " . $e->getMessage());
-            return false;
-        }
+        return ($normA == 0 || $normB == 0) ? 0.0 : $dot / (sqrt($normA) * sqrt($normB));
     }
 
-    /**
-     * Kategorisasi pertanyaan untuk knowledge base
-     */
-    private function categorizeQuestion(string $question): string
+    private function getEmbedding(string $text): array
     {
-        $question = strtolower($question);
-
-        // Definisikan kategori berdasarkan kata kunci
-        $categories = [
-            'beasiswa' => ['beasiswa', 'scholarship', 'bantuan', 'dana'],
-            'kegiatan' => ['kegiatan', 'acara', 'event', 'program'],
-            'pendaftaran' => ['daftar', 'registrasi', 'syarat', 'pendaftaran'],
-            'informasi_umum' => ['apa', 'siapa', 'dimana', 'kapan', 'bagaimana'],
-            'kontak' => ['kontak', 'alamat', 'telepon', 'email'],
-            'sejarah' => ['sejarah', 'awal', 'didirikan', 'berdiri'],
-        ];
-
-        foreach ($categories as $category => $keywords) {
-            foreach ($keywords as $keyword) {
-                if (strpos($question, $keyword) !== false) {
-                    return $category;
-                }
-            }
-        }
-
-        return 'umum';
-    }
-
-    /**
-     * Get statistics for admin dashboard
-     */
-    public function getStatistics(): array
-    {
-        if (!$this->isConnected()) {
+        $apiKey = env('OPENAI_API_KEY');
+        if (empty($apiKey) || empty($text)) {
             return [];
         }
 
         try {
-            $stats = [
-                'total_chat_logs' => 0,
-                'total_knowledge_base' => 0,
-                'total_error_logs' => 0,
-                'today_queries' => 0,
-            ];
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $apiKey,
+                'Content-Type' => 'application/json',
+            ])->post('https://openrouter.ai/api/v1/chat/completions', [
+                'model' => 'text-embedding-3-small',
+                'input' => $text,
+            ]);
 
-            // Count chat logs
-            $chatLogs = $this->db->collection('chat_logs')->documents();
-            $stats['total_chat_logs'] = iterator_count($chatLogs);
-
-            // Count knowledge base
-            $knowledgeBase = $this->db->collection('knowledge_base')->documents();
-            $stats['total_knowledge_base'] = iterator_count($knowledgeBase);
-
-            // Count error logs
-            $errorLogs = $this->db->collection('error_logs')->documents();
-            $stats['total_error_logs'] = iterator_count($errorLogs);
-
-            // Get today's metrics
-            $today = date('Y-m-d');
-            $todayDoc = $this->db->collection('system_metrics')->document($today)->snapshot();
-            if ($todayDoc->exists()) {
-                $todayData = $todayDoc->data();
-                $stats['today_queries'] = $todayData['total_queries'] ?? 0;
+            if ($response->successful()) {
+                return $response->json()['data'][0]['embedding'];
             }
 
-            return $stats;
+            Log::error('OpenAI Embedding HTTP Error: ' . $response->body());
+            return [];
         } catch (\Exception $e) {
-            Log::error("Failed to get statistics: " . $e->getMessage());
+            Log::error('OpenAI Embedding Exception: ' . $e->getMessage());
             return [];
         }
     }
