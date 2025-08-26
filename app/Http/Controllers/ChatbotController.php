@@ -27,6 +27,11 @@ class ChatbotController extends Controller
         $sessionId = $request->input('session_id', session()->getId());
         $userId = auth()->id();
 
+        // === Tambahan untuk testing ===
+        $startOverall = microtime(true);
+        $activeUsers = count(session()->all());
+        Log::info("TESTING START - Pesan: '{$message}', User Aktif: {$activeUsers}");
+
         $response = [
             'message' => 'Maaf, terjadi kesalahan. Silakan coba lagi nanti.',
             'suggestions' => [],
@@ -35,8 +40,11 @@ class ChatbotController extends Controller
 
         try {
             // Layer 1: Coba Dialogflow untuk intent dasar (sapaan, dll)
+            $startDialogflow = microtime(true);
             Log::info("Layer 1: Mencoba Dialogflow untuk: '{$message}'");
             $dialogflowResponse = $this->detectIntent($message);
+            $durationDialogflow = round((microtime(true) - $startDialogflow) * 1000, 2);
+            Log::info("DURASI Dialogflow: {$durationDialogflow} ms | User Aktif: {$activeUsers}");
 
             // Periksa apakah Dialogflow memberikan respons yang valid dan bukan fallback
             if (
@@ -52,7 +60,11 @@ class ChatbotController extends Controller
                 Log::info("Dialogflow berhasil memberikan jawaban: '{$dialogflowResponse['text']}'");
 
                 // Dapatkan sugesti cerdas dari OpenAI
+                $startOpenAI = microtime(true);
                 $openAIResult = $this->fallbackWithOpenAI($message, null, true);
+                $durationOpenAI = round((microtime(true) - $startOpenAI) * 1000, 2);
+                Log::info("DURASI OpenAI (Sugesti Saja): {$durationOpenAI} ms | User Aktif: {$activeUsers}");
+
                 $response['suggestions'] = $openAIResult['suggestions'] ?? [];
             } else {
                 // Log detail mengapa Dialogflow tidak digunakan
@@ -67,8 +79,11 @@ class ChatbotController extends Controller
                 }
 
                 // Layer 2: Cari jawaban di Firestore Knowledge Base
+                $startFirestore = microtime(true);
                 Log::info("Layer 2: Mencari di Firestore Knowledge Base");
                 $firestoreAnswer = $this->firestoreService->searchKnowledgeBase($message);
+                $durationFirestore = round((microtime(true) - $startFirestore) * 1000, 2);
+                Log::info("DURASI Firestore: {$durationFirestore} ms | User Aktif: {$activeUsers}");
 
                 if ($firestoreAnswer) {
                     $response['message'] = $firestoreAnswer;
@@ -76,7 +91,11 @@ class ChatbotController extends Controller
                     Log::info("Firestore berhasil memberikan jawaban");
 
                     // Dapatkan sugesti cerdas dari OpenAI
+                    $startOpenAI = microtime(true);
                     $openAIResult = $this->fallbackWithOpenAI($message, null, true);
+                    $durationOpenAI = round((microtime(true) - $startOpenAI) * 1000, 2);
+                    Log::info("DURASI OpenAI (Sugesti Saja): {$durationOpenAI} ms | User Aktif: {$activeUsers}");
+
                     $response['suggestions'] = $openAIResult['suggestions'] ?? [];
                 } else {
                     Log::info("Layer 3: Fallback ke OpenAI");
@@ -88,7 +107,10 @@ class ChatbotController extends Controller
                         $contextData = $this->scrapeWebsiteForActivities();
                     }
 
+                    $startOpenAI = microtime(true);
                     $openAIResult = $this->fallbackWithOpenAI($message, $contextData);
+                    $durationOpenAI = round((microtime(true) - $startOpenAI) * 1000, 2);
+                    Log::info("DURASI OpenAI (Jawaban Lengkap): {$durationOpenAI} ms | User Aktif: {$activeUsers}");
 
                     if (isset($openAIResult['answer']) && !empty($openAIResult['answer'])) {
                         $response['message'] = $openAIResult['answer'];
@@ -120,6 +142,9 @@ class ChatbotController extends Controller
             $this->firestoreService->addErrorLog($e->getMessage(), $message, ['file' => $e->getFile(), 'line' => $e->getLine()]);
         }
 
+        $durationOverall = round((microtime(true) - $startOverall) * 1000, 2);
+        Log::info("TOTAL DURASI request '{$message}' : {$durationOverall} ms | Final Source: {$source} | User Aktif: {$activeUsers}");
+
         return response()->json($response);
     }
 
@@ -128,45 +153,31 @@ class ChatbotController extends Controller
         try {
             $projectId = env('DIALOGFLOW_PROJECT_ID');
             $sessionId = session()->getId();
-
-            // Menggunakan path dari env variable dengan handling duplikasi
             $envPath = env('DIALOGFLOW_CREDENTIALS');
             $cleanPath = str_replace('storage/', '', $envPath);
             $credentialsPath = storage_path($cleanPath);
-
-            // Verifikasi file exists
             if (!file_exists($credentialsPath)) {
                 Log::error("File kredensial Dialogflow tidak ditemukan di: {$credentialsPath}");
                 return null;
             }
-
             Log::info("Menginisiasi Dialogflow - Text: '{$text}', Session: {$sessionId}, Project: {$projectId}");
-
             $sessionsClient = new SessionsClient(['credentials' => $credentialsPath]);
             $session = $sessionsClient->sessionName($projectId, $sessionId);
-
             $textInput = (new TextInput())
                 ->setText($text)
                 ->setLanguageCode('id');
-
             $queryInput = (new QueryInput())->setText($textInput);
-
             $request = (new DetectIntentRequest())
                 ->setSession($session)
                 ->setQueryInput($queryInput);
-
             $response = $sessionsClient->detectIntent($request);
             $queryResult = $response->getQueryResult();
-
             $fulfillmentText = $queryResult->getFulfillmentText();
             $intentName = $queryResult->getIntent() ? $queryResult->getIntent()->getDisplayName() : 'No Intent';
             $isFallback = $queryResult->getIntent() ? $queryResult->getIntent()->getIsFallback() : true;
             $confidence = $queryResult->getIntentDetectionConfidence();
-
             Log::info("Dialogflow Response - Intent: '{$intentName}', Text: '{$fulfillmentText}', Fallback: {$isFallback}, Confidence: {$confidence}");
-
             $sessionsClient->close();
-
             return [
                 'text' => $fulfillmentText,
                 'intent_name' => $intentName,
@@ -280,6 +291,7 @@ class ChatbotController extends Controller
 
             Log::info("Menguji Dialogflow dengan project: {$projectId}, credentials: {$credentialsPath}");
 
+            $startDialogflow = microtime(true);
             $sessionsClient = new SessionsClient(['credentials' => $credentialsPath]);
             $session = $sessionsClient->sessionName($projectId, $sessionId);
 
@@ -295,7 +307,8 @@ class ChatbotController extends Controller
             $isFallback = $queryResult->getIntent() ? $queryResult->getIntent()->getIsFallback() : true;
             $confidence = $queryResult->getIntentDetectionConfidence();
 
-            Log::info("Dialogflow test respons - Intent: '{$intentName}', Text: '{$fulfillmentText}', Fallback: {$isFallback}, Confidence: {$confidence}");
+            $durationDialogflow = round((microtime(true) - $startDialogflow) * 1000, 2);
+            Log::info("Dialogflow test durasi: {$durationDialogflow} ms | Intent: '{$intentName}', Confidence: {$confidence}");
 
             $sessionsClient->close();
 
@@ -306,6 +319,7 @@ class ChatbotController extends Controller
                 'intent_name' => $intentName,
                 'is_fallback' => $isFallback,
                 'confidence' => $confidence,
+                'duration_ms' => $durationDialogflow,
             ]);
         } catch (\Exception $e) {
             Log::error("Dialogflow Test Error: " . $e->getMessage() . " | File: " . $e->getFile() . " | Line: " . $e->getLine());
@@ -331,36 +345,19 @@ class ChatbotController extends Controller
         try {
             Log::info("DIALOGFLOW ONLY TEST - Input: '{$message}', Session: {$sessionId}");
 
+            $startDialogflow = microtime(true);
             $dialogflowResponse = $this->detectIntent($message);
+            $durationDialogflow = round((microtime(true) - $startDialogflow) * 1000, 2);
+            Log::info("DURASI Dialogflow Only: {$durationDialogflow} ms");
 
-            if ($dialogflowResponse) {
-                $response['message'] = $dialogflowResponse['text'] ?: 'Dialogflow mengembalikan respons kosong';
-                $response['source'] = $dialogflowResponse['is_fallback'] ? 'dialogflow_fallback' : 'dialogflow_success';
-                $response['debug_info'] = [
-                    'intent_name' => $dialogflowResponse['intent_name'] ?? 'unknown',
-                    'confidence' => $dialogflowResponse['confidence'] ?? 0,
-                    'is_fallback' => $dialogflowResponse['is_fallback'] ?? true,
-                    'fulfillment_text' => $dialogflowResponse['text'] ?? '',
-                ];
-
-                Log::info("DIALOGFLOW RESPONSE", $response['debug_info']);
-            } else {
-                $response['message'] = 'Dialogflow gagal total - tidak ada respons';
-                $response['source'] = 'dialogflow_error';
-                $response['debug_info'] = ['error' => 'No response from Dialogflow'];
-
-                Log::error("DIALOGFLOW FAILED - No response returned");
+            if ($dialogflowResponse && !empty($dialogflowResponse['text'])) {
+                $response['message'] = $dialogflowResponse['text'];
+                $response['source'] = 'dialogflow';
+                $response['debug_info'] = $dialogflowResponse;
+                Log::info("Dialogflow Only Response: '{$dialogflowResponse['text']}'");
             }
         } catch (\Exception $e) {
-            Log::error('DIALOGFLOW ONLY ERROR: ' . $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine());
-
-            $response['message'] = 'Error: ' . $e->getMessage();
-            $response['source'] = 'dialogflow_exception';
-            $response['debug_info'] = [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ];
+            Log::error("Dialogflow Only Error: " . $e->getMessage() . " | File: " . $e->getFile() . " | Line: " . $e->getLine());
         }
 
         return response()->json($response);
