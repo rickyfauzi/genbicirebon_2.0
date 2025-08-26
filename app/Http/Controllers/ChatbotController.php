@@ -362,4 +362,23 @@ class ChatbotController extends Controller
 
         return response()->json($response);
     }
+
+    public function resetKnowledgeBase()
+    {
+        try {
+            $collection = $this->firestore->collection('knowledge_base');
+            $documents = $collection->documents();
+
+            foreach ($documents as $document) {
+                $document->reference()->delete();
+            }
+
+            \Log::info("Knowledge base berhasil direset (semua data dihapus).");
+
+            return "Knowledge base berhasil direset.";
+        } catch (\Exception $e) {
+            \Log::error("Gagal reset knowledge base: " . $e->getMessage());
+            return "Error: " . $e->getMessage();
+        }
+    }
 }

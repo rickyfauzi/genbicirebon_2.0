@@ -48,6 +48,8 @@ Route::get('/firestore-test', function (\App\Services\FirestoreService $firestor
 // di routes/web.php
 Route::post('/dialogflow-only', [ChatbotController::class, 'sendMessageDialogflowOnly']);
 Route::get('/diagnose-dialogflow', [ChatbotController::class, 'diagnoseDialogflow']);
+Route::get('/reset-knowledge', [ChatbotController::class, 'resetKnowledgeBase']);
+
 
 
 /** for side bar menu active */
