@@ -111,42 +111,6 @@ class FirestoreService
     }
 
     /**
-     * Ambil history percakapan terbaru untuk session tertentu
-     */
-    public function getChatHistory(string $sessionId, int $limit = 5): array
-    {
-        if (!$this->isConnected()) {
-            Log::warning("Cannot get chat history: Firestore not connected");
-            return [];
-        }
-
-        try {
-            $collection = $this->db->collection('chat_logs');
-            $query = $collection->where('session_id', '=', $sessionId)
-                ->orderBy('timestamp', 'DESC')
-                ->limit($limit);
-            $documents = $query->documents();
-
-            $history = [];
-            foreach ($documents as $doc) {
-                if ($doc->exists()) {
-                    $data = $doc->data();
-                    $history[] = [
-                        'user_message' => $data['question'] ?? '',
-                        'bot_response' => $data['answer'] ?? '',
-                    ];
-                }
-            }
-
-            // Balikkan array untuk urutan kronologis (terlama dulu)
-            return array_reverse($history);
-        } catch (\Exception $e) {
-            Log::error("Failed to get chat history: " . $e->getMessage());
-            return [];
-        }
-    }
-
-    /**
      * Cari jawaban di knowledge base berdasarkan kemiripan semantik menggunakan embedding jika tersedia, fallback ke teks similarity.
      */
     public function searchKnowledgeBase(string $query, float $semanticThreshold = 0.8, float $textThreshold = 60.0): ?string

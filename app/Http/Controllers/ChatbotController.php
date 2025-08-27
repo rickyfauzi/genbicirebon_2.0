@@ -39,10 +39,6 @@ class ChatbotController extends Controller
         $source = 'error';
 
         try {
-            // Ambil history percakapan terbaru untuk konteks (maksimal 5 pesan terakhir)
-            $history = $this->firestoreService->getChatHistory($sessionId, 5);
-            $historyContext = $this->formatHistory($history);
-
             // Layer 1: Coba Dialogflow untuk intent dasar (sapaan, dll)
             $startDialogflow = microtime(true);
             Log::info("Layer 1: Mencoba Dialogflow untuk: '{$message}'");
@@ -59,13 +55,15 @@ class ChatbotController extends Controller
                 !str_contains(strtolower($dialogflowResponse['text']), 'sorry') &&
                 !str_contains(strtolower($dialogflowResponse['text']), 'tidak mengerti')
             ) {
-                $response['message'] = $dialogflowResponse['text'];
+                $botAnswer = $dialogflowResponse['text'];
+                $response['message'] = $botAnswer;
                 $source = 'dialogflow';
-                Log::info("Dialogflow berhasil memberikan jawaban: '{$dialogflowResponse['text']}'");
+                Log::info("Dialogflow berhasil memberikan jawaban: '{$botAnswer}'");
 
-                // Dapatkan sugesti cerdas dari OpenAI dengan konteks history
+                // Dapatkan sugesti cerdas dari OpenAI dengan KONTEKS jawaban Dialogflow
                 $startOpenAI = microtime(true);
-                $openAIResult = $this->fallbackWithOpenAI($message, null, true, $historyContext);
+                // PERUBAHAN KUNCI: Kirim jawaban dari Dialogflow ($botAnswer) sebagai konteks
+                $openAIResult = $this->fallbackWithOpenAI($message, $botAnswer, null, false);
                 $durationOpenAI = round((microtime(true) - $startOpenAI) * 1000, 2);
                 Log::info("DURASI OpenAI (Sugesti Saja): {$durationOpenAI} ms | User Aktif: {$activeUsers}");
 
@@ -94,15 +92,16 @@ class ChatbotController extends Controller
                     $source = 'firestore';
                     Log::info("Firestore berhasil memberikan jawaban");
 
-                    // Dapatkan sugesti cerdas dari OpenAI dengan konteks history
+                    // Dapatkan sugesti cerdas dari OpenAI dengan KONTEKS jawaban Firestore
                     $startOpenAI = microtime(true);
-                    $openAIResult = $this->fallbackWithOpenAI($message, null, true, $historyContext);
+                    // PERUBAHAN KUNCI: Kirim jawaban dari Firestore ($firestoreAnswer) sebagai konteks
+                    $openAIResult = $this->fallbackWithOpenAI($message, $firestoreAnswer, null, false);
                     $durationOpenAI = round((microtime(true) - $startOpenAI) * 1000, 2);
                     Log::info("DURASI OpenAI (Sugesti Saja): {$durationOpenAI} ms | User Aktif: {$activeUsers}");
 
                     $response['suggestions'] = $openAIResult['suggestions'] ?? [];
                 } else {
-                    Log::info("Layer 3: Fallback ke OpenAI");
+                    Log::info("Layer 3: Fallback ke OpenAI untuk jawaban lengkap");
 
                     // Layer 3: Fallback ke OpenAI
                     $contextData = null;
@@ -112,17 +111,18 @@ class ChatbotController extends Controller
                     }
 
                     $startOpenAI = microtime(true);
-                    $openAIResult = $this->fallbackWithOpenAI($message, $contextData, false, $historyContext);
+                    // Panggil OpenAI untuk memberikan JAWABAN dan SARAN
+                    $openAIResult = $this->fallbackWithOpenAI($message, null, $contextData, true);
                     $durationOpenAI = round((microtime(true) - $startOpenAI) * 1000, 2);
                     Log::info("DURASI OpenAI (Jawaban Lengkap): {$durationOpenAI} ms | User Aktif: {$activeUsers}");
 
-                    if (isset($openAIResult['answer']) && !empty($openAIResult['answer'])) {
+                    if (isset($openAIResult['answer']) && !empty(trim($openAIResult['answer']))) {
                         $response['message'] = $openAIResult['answer'];
                         $response['suggestions'] = $openAIResult['suggestions'] ?? [];
                         $source = 'openai';
                         Log::info("OpenAI berhasil memberikan jawaban");
 
-                        // Learning Loop: Simpan pengetahuan baru ke Firestore
+                        // Learning Loop: Simpan pengetahuan baru ke Firestore jika tidak ada konteks eksternal
                         if ($contextData === null) {
                             $this->firestoreService->addKnowledgeBase($message, $openAIResult['answer']);
                             Log::info("Knowledge base umum baru ditambahkan: '{$message}'");
@@ -150,19 +150,6 @@ class ChatbotController extends Controller
         Log::info("TOTAL DURASI request '{$message}' : {$durationOverall} ms | Final Source: {$source} | User Aktif: {$activeUsers}");
 
         return response()->json($response);
-    }
-
-    private function formatHistory($history)
-    {
-        if (empty($history)) {
-            return '';
-        }
-
-        $formatted = "Konteks percakapan sebelumnya (gunakan ini untuk membuat jawaban dan saran yang nyambung dan relevan):\n";
-        foreach ($history as $log) {
-            $formatted .= "User: {$log['user_message']}\nBot: {$log['bot_response']}\n";
-        }
-        return $formatted;
     }
 
     private function detectIntent(string $text)
@@ -193,7 +180,6 @@ class ChatbotController extends Controller
             $intentName = $queryResult->getIntent() ? $queryResult->getIntent()->getDisplayName() : 'No Intent';
             $isFallback = $queryResult->getIntent() ? $queryResult->getIntent()->getIsFallback() : true;
             $confidence = $queryResult->getIntentDetectionConfidence();
-            // Log::info("Dialogflow Response - Intent: '{$intentName}', Text: '{$fulfillmentText}', Fallback: {$isFallback}, Confidence: {$confidence}");
             $sessionsClient->close();
             return [
                 'text' => $fulfillmentText,
@@ -242,20 +228,40 @@ class ChatbotController extends Controller
         }
     }
 
-    private function fallbackWithOpenAI(string $text, ?string $externalContext = null, bool $suggestionsOnly = false, string $historyContext = '')
+    /**
+     * Berinteraksi dengan OpenAI untuk mendapatkan jawaban dan/atau saran.
+     *
+     * @param string $userQuery Pertanyaan dari pengguna.
+     * @param string|null $botAnswer Jawaban yang sudah ada dari Dialogflow/Firestore untuk dijadikan konteks saran.
+     * @param string|null $externalContext Konteks tambahan dari scraping website.
+     * @param bool $generateFullAnswer Jika true, generate jawaban lengkap + saran. Jika false, HANYA generate saran.
+     * @return array ['answer' => string, 'suggestions' => array]
+     */
+    private function fallbackWithOpenAI(string $userQuery, ?string $botAnswer = null, ?string $externalContext = null, bool $generateFullAnswer = true)
     {
         $apiKey = env('OPENROUTER_API_KEY');
-        $siteContext = "Kamu adalah 'GenBI Assistant', asisten AI yang ramah, informatif, dan ahli tentang GenBI Cirebon (Generasi Baru Indonesia Cirebon), sebuah komunitas penerima beasiswa Bank Indonesia. Website resmi adalah genbicirebon.org. Jawablah semua pertanyaan dalam konteks ini. Pastikan jawaban dan saran nyambung dengan topik yang sedang dibahas.";
+        $siteContext = "Kamu adalah 'GenBI Assistant', asisten AI yang ramah, informatif, dan ahli tentang GenBI Cirebon (Generasi Baru Indonesia Cirebon), sebuah komunitas penerima beasiswa Bank Indonesia. Website resmi adalah genbicirebon.org. Jawablah semua pertanyaan dalam konteks ini.";
 
-        $promptAction = $suggestionsOnly
-            ? "Tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang relevan dengan pertanyaan pengguna dan konteks percakapan. JANGAN menjawab pertanyaan pengguna. Buat saran dinamis, nyambung, dan sesuaikan dengan apa yang sedang dibahas."
-            : "Jawab pertanyaan pengguna secara ringkas, informatif, dan relevan dengan konteks percakapan. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan, nyambung, dan sangat singkat (maksimal 4 kata per saran).";
+        $conversationContext = "";
+        $promptAction = "";
+
+        if ($generateFullAnswer) {
+            // Skenario: OpenAI harus memberikan JAWABAN LENGKAP + SARAN
+            $promptAction = "Jawab pertanyaan pengguna secara ringkas dan informatif. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan dan sangat singkat (maksimal 5 kata per saran).";
+            $userInput = $userQuery;
+        } else {
+            // Skenario: OpenAI HANYA memberikan SARAN berdasarkan percakapan yang sudah ada
+            $conversationContext = "Konteks percakapan saat ini:\n[PENGGUNA]: {$userQuery}\n[ASISTEN]: {$botAnswer}\n\n";
+            $promptAction = "Berdasarkan konteks percakapan di atas, tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang relevan. JANGAN menjawab lagi pertanyaan pengguna. Pastikan saran relevan dengan jawaban asisten.";
+            // User input bisa disederhanakan karena konteks utama ada di system prompt
+            $userInput = "Berikan saran pertanyaan lanjutan.";
+        }
 
         $contextInjection = $externalContext
             ? "Gunakan informasi tambahan berikut untuk menjawab pertanyaan pengguna secara akurat:\n---INFO TAMBAHAN---\n{$externalContext}\n-------------------\n"
             : "";
 
-        $systemPrompt = "{$siteContext} {$historyContext} {$contextInjection} {$promptAction} Format respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. Jika hanya diminta saran, isi field 'answer' dengan string kosong.";
+        $systemPrompt = "{$siteContext} {$conversationContext} {$contextInjection} {$promptAction} Format respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. Jika hanya diminta saran, isi field 'answer' dengan string kosong.";
 
         try {
             $response = Http::timeout(45)->withHeaders([
@@ -267,7 +273,7 @@ class ChatbotController extends Controller
                 "model" => "openai/gpt-3.5-turbo",
                 "messages" => [
                     ["role" => "system", "content" => $systemPrompt],
-                    ["role" => "user", "content" => $text]
+                    ["role" => "user", "content" => $userInput] // Menggunakan $userInput yang sudah disesuaikan
                 ],
                 "response_format" => ["type" => "json_object"],
                 "temperature" => 0.4,
@@ -275,9 +281,17 @@ class ChatbotController extends Controller
             ]);
 
             if ($response->successful()) {
-                $data = json_decode($response->json()['choices'][0]['message']['content'], true);
+                $content = $response->json()['choices'][0]['message']['content'];
+                $data = json_decode($content, true);
+
+                // Fallback jika JSON tidak valid
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    Log::error('OpenAI Fallback JSON Decode Error: ' . json_last_error_msg() . ' | Content: ' . $content);
+                    return ['answer' => 'Maaf, terjadi sedikit kesalahan format. Silakan coba lagi.', 'suggestions' => []];
+                }
+
                 return [
-                    'answer' => $data['answer'] ?? ($suggestionsOnly ? '' : 'Gagal memformat jawaban.'),
+                    'answer' => $data['answer'] ?? ($generateFullAnswer ? 'Gagal memformat jawaban.' : ''),
                     'suggestions' => $data['suggestions'] ?? [],
                 ];
             }
@@ -292,6 +306,7 @@ class ChatbotController extends Controller
 
     public function testDialogflow()
     {
+        // ... (Fungsi ini tidak perlu diubah, biarkan seperti semula)
         try {
             $projectId = env('DIALOGFLOW_PROJECT_ID');
             $envPath = env('DIALOGFLOW_CREDENTIALS');
@@ -350,6 +365,7 @@ class ChatbotController extends Controller
 
     public function sendMessageDialogflowOnly(Request $request)
     {
+        // ... (Fungsi ini tidak perlu diubah, biarkan seperti semula)
         $message = $request->input('message');
         $sessionId = $request->input('session_id', session()->getId());
 
@@ -382,6 +398,7 @@ class ChatbotController extends Controller
 
     public function resetKnowledgeBase()
     {
+        // ... (Fungsi ini tidak perlu diubah, biarkan seperti semula)
         $success = $this->firestoreService->resetKnowledgeBase();
 
         if ($success) {
