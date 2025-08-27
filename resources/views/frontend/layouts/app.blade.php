@@ -145,7 +145,6 @@
 
         .chat-header h5 {
             color: white;
-
         }
 
         .chat-header-info {
@@ -324,20 +323,20 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 16px;
+            padding: 12px;
         }
 
         .typing-dots {
             display: flex;
-            gap: 4px;
+            gap: 5px;
         }
 
         .typing-dot {
-            width: 8px;
-            height: 8px;
-            background: #9ca3af;
+            width: 7px;
+            height: 7px;
+            background: var(--chatbot-primary);
             border-radius: 50%;
-            animation: typing 1.4s infinite ease-in-out;
+            animation: typing 1.2s infinite ease-in-out;
         }
 
         .typing-dot:nth-child(1) {
@@ -345,11 +344,11 @@
         }
 
         .typing-dot:nth-child(2) {
-            animation-delay: 0.2s;
+            animation-delay: 0.15s;
         }
 
         .typing-dot:nth-child(3) {
-            animation-delay: 0.4s;
+            animation-delay: 0.3s;
         }
 
         @keyframes typing {
@@ -358,11 +357,11 @@
             60%,
             100% {
                 transform: translateY(0);
-                opacity: 0.4;
+                opacity: 0.5;
             }
 
             30% {
-                transform: translateY(-10px);
+                transform: translateY(-8px);
                 opacity: 1;
             }
         }
@@ -371,9 +370,9 @@
         .quick-replies {
             display: flex;
             flex-wrap: wrap;
-            /* Memungkinkan item pindah ke baris baru */
             gap: 8px;
             margin-top: 12px;
+            max-width: 100%;
         }
 
         .quick-reply {
@@ -381,23 +380,27 @@
             border: 1px solid #e2e8f0;
             color: #475569;
             border-radius: 20px;
-            padding: 8px 12px;
-            /* Sedikit lebih kecil agar pas */
+            padding: 8px 14px;
             font-size: 13px;
-            /* Ukuran font yang pas */
             cursor: pointer;
             transition: all 0.2s;
-            /* white-space: nowrap; <-- HAPUS atau ganti dengan normal */
             white-space: normal;
-            /* Memungkinkan teks untuk wrap */
             text-align: left;
-            /* Agar teks rata kiri jika wrap */
-            line-height: 1.3;
+            line-height: 1.4;
+            max-width: calc(100% - 20px);
+            /* Ensure buttons don't overflow */
+            box-sizing: border-box;
         }
 
         .quick-reply:hover {
             background: #e2e8f0;
             transform: translateY(-1px);
+        }
+
+        .quick-reply.loading {
+            opacity: 0.6;
+            cursor: not-allowed;
+            pointer-events: none;
         }
 
         /* Chat Input */
@@ -513,6 +516,52 @@
             #chat-messages {
                 height: calc(100vh - 280px);
             }
+
+            .quick-reply {
+                font-size: 12px;
+                padding: 6px 12px;
+                max-width: calc(50% - 10px);
+                /* Ensure buttons fit on small screens */
+            }
+        }
+
+        /* Responsive Design for Mobile (Fullscreen) */
+        @media (max-width: 767px) {
+            #chat-window {
+                width: 100vw;
+                height: 100vh;
+                max-height: 100vh;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                border-radius: 0;
+                z-index: 10000;
+            }
+
+            #chat-window.show+#chat-float {
+                display: none;
+            }
+
+            .chat-header {
+                border-radius: 0;
+            }
+
+            #chat-messages {
+                height: calc(100vh - 85px - 89px);
+            }
+
+            .quick-reply {
+                max-width: calc(50% - 10px);
+                /* Ensure suggestions fit */
+            }
+        }
+
+        /* Sedikit penyesuaian untuk desktop */
+        @media (min-width: 768px) {
+            #chat-window.show {
+                animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            }
         }
 
         /* Loading spinner styles */
@@ -545,58 +594,6 @@
 
             100% {
                 transform: rotate(360deg);
-            }
-        }
-
-        @media (max-width: 480px) {
-            #chat-window {
-                width: calc(100vw - 20px);
-                height: calc(100vh - 100px);
-                right: 10px;
-                bottom: 90px;
-                border-radius: 15px;
-            }
-        }
-
-        /* Responsive Design for Mobile (Fullscreen) */
-        @media (max-width: 767px) {
-
-            /* Target semua perangkat mobile */
-            #chat-window {
-                width: 100vw;
-                height: 100vh;
-                max-height: 100vh;
-                /* Override max-height */
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                border-radius: 0;
-                /* Hapus border-radius untuk fullscreen */
-                z-index: 10000;
-                /* Pastikan di atas segalanya */
-            }
-
-            /* Sembunyikan tombol float saat chat window terbuka */
-            #chat-window.show+#chat-float {
-                display: none;
-            }
-
-            .chat-header {
-                border-radius: 0;
-            }
-
-            #chat-messages {
-                /* Kalkulasi tinggi secara dinamis */
-                /* Total tinggi (100vh) - tinggi header - tinggi input */
-                height: calc(100vh - 85px - 89px);
-            }
-        }
-
-        /* Sedikit penyesuaian untuk desktop */
-        @media (min-width: 768px) {
-            #chat-window.show {
-                animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             }
         }
     </style>
@@ -683,9 +680,6 @@
             const chatInput = $('#chat-input');
             const sendBtn = $('#send-btn');
             const messagesContainer = $('#chat-messages');
-            const quickRepliesContainer = $('#quick-replies-container'); // Container khusus sugesti
-            const welcomeMessage = $('.welcome-message');
-
             const sessionId = 'webchat-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
             let isTyping = false;
             let chatInitialized = false;
@@ -695,7 +689,7 @@
 
             // Event listener for Enter key press in the input field
             chatInput.on('keypress', function(e) {
-                if (e.which === 13 && !e.shiftKey) {
+                if (e.which === 13 && !e.shiftKey && !isTyping) {
                     e.preventDefault();
                     sendChat();
                 }
@@ -719,15 +713,19 @@
 
             // Show the initial welcome message and suggestions
             function showWelcomeSequence() {
+                const welcomeMessage = $('.welcome-message');
                 welcomeMessage.fadeOut(300, function() {
-                    $(this).remove(); // Hapus pesan selamat datang statis
-                    const initialSuggestions = ["Apa itu GenBI?", "Syarat Beasiswa", "Program Unggulan"];
-                    // Munculkan pesan selamat datang dinamis dan sugesti
+                    $(this).remove(); // Remove static welcome message
+                    // Dynamic welcome message
                     appendMessage(
                         "Halo! Saya GenBI Assistant. Ada yang bisa saya bantu tentang program GenBI Cirebon?",
-                        'bot');
+                        'bot'
+                    );
+                    // Initial suggestions
                     setTimeout(() => {
-                        showDynamicSuggestions(initialSuggestions);
+                        showDynamicSuggestions(["Apa itu GenBI?", "Syarat Beasiswa",
+                            "Program Unggulan"
+                        ]);
                     }, 500);
                 });
             }
@@ -737,7 +735,8 @@
                 const message = chatInput.val().trim();
                 if (!message || isTyping) return;
 
-                $('.quick-replies').remove(); // Clear previous suggestions
+                // Clear previous suggestions
+                $('.quick-replies').remove();
                 chatInput.val('');
                 sendBtn.prop('disabled', true);
                 isTyping = true;
@@ -753,15 +752,18 @@
                         message: message,
                         session_id: sessionId
                     },
-                    timeout: 30000, // 30 seconds for potential AI response
+                    timeout: 30000,
                     success: function(response) {
                         hideTypingIndicator();
                         if (response && response.message) {
                             appendMessage(response.message, 'bot');
                             if (response.suggestions && response.suggestions.length > 0) {
+                                // Show loading state for suggestions
+                                showSuggestionLoading();
                                 setTimeout(() => {
+                                    hideSuggestionLoading();
                                     showDynamicSuggestions(response.suggestions);
-                                }, 500);
+                                }, 300); // Simulate slight delay for UX
                             }
                         } else {
                             appendMessage("Maaf, terjadi kesalahan saat memproses pesan Anda.", 'bot');
@@ -823,8 +825,33 @@
                 $('#typing-indicator').remove();
             }
 
+            // Display loading state for suggestions
+            function showSuggestionLoading() {
+                const loadingHtml = `
+                    <div class="quick-replies">
+                        <button class="quick-reply loading">Memuat saran...</button>
+                        <button class="quick-reply loading">Memuat saran...</button>
+                        <button class="quick-reply loading">Memuat saran...</button>
+                    </div>
+                `;
+                const lastMessageBubble = messagesContainer.find('.msg-row.msg-bot:last .msg-bubble');
+                if (lastMessageBubble.length) {
+                    lastMessageBubble.append(loadingHtml);
+                } else {
+                    messagesContainer.append(loadingHtml);
+                }
+                scrollToBottom();
+            }
+
+            // Remove suggestion loading state
+            function hideSuggestionLoading() {
+                $('.quick-reply.loading').parent('.quick-replies').remove();
+            }
+
             // Display dynamic suggestion buttons
             window.showDynamicSuggestions = function(suggestions) {
+                if (!suggestions || suggestions.length === 0) return;
+
                 const suggestionsHtml = `
                     <div class="quick-replies">
                         ${suggestions.map(reply =>
