@@ -240,68 +240,214 @@ class ChatbotController extends Controller
     private function fallbackWithOpenAI(string $userQuery, ?string $botAnswer = null, ?string $externalContext = null, bool $generateFullAnswer = true)
     {
         $apiKey = env('OPENROUTER_API_KEY');
-        $siteContext = "Kamu adalah 'GenBI Assistant', asisten AI yang ramah, informatif, dan ahli tentang GenBI Cirebon (Generasi Baru Indonesia Cirebon), sebuah komunitas penerima beasiswa Bank Indonesia. Website resmi adalah genbicirebon.org. Jawablah semua pertanyaan dalam konteks ini.";
+
+        // Periksa apakah pertanyaan relevan dengan topik GenBI
+        if (!$this->isRelevantToGenBI($userQuery)) {
+            return [
+                'answer' => 'Maaf, saya hanya dapat membantu menjawab pertanyaan seputar GenBI (Generasi Baru Indonesia), GenBI Cirebon, beasiswa Bank Indonesia, dan topik terkait Bank Indonesia. Silakan ajukan pertanyaan yang berkaitan dengan topik tersebut.',
+                'suggestions' => [
+                    'Apa itu GenBI?',
+                    'Beasiswa Bank Indonesia',
+                    'Kegiatan GenBI Cirebon'
+                ]
+            ];
+        }
+
+        $siteContext = "Kamu adalah 'GenBI Assistant', asisten AI khusus yang hanya menjawab pertanyaan tentang:
+1. GenBI (Generasi Baru Indonesia) - komunitas penerima beasiswa Bank Indonesia
+2. GenBI Cirebon - chapter lokal di Cirebon (website: genbicirebon.org)
+3. Beasiswa Bank Indonesia - program beasiswa dari BI
+4. Bank Indonesia - kebijakan, program, dan informasi umum BI
+
+ATURAN PENTING:
+- HANYA jawab pertanyaan yang berkaitan dengan topik di atas
+- Jika pertanyaan di luar topik, tolak dengan sopan dan arahkan ke topik yang relevan
+- Jawab dalam bahasa Indonesia dengan nada ramah dan informatif
+- Berikan informasi yang akurat dan bermanfaat";
 
         $conversationContext = "";
         $promptAction = "";
 
         if ($generateFullAnswer) {
-            // Skenario: OpenAI harus memberikan JAWABAN LENGKAP + SARAN
-            $promptAction = "Jawab pertanyaan pengguna secara ringkas dan informatif. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan dan sangat singkat (maksimal 5 kata per saran).";
+            $promptAction = "Analisis apakah pertanyaan pengguna relevan dengan topik GenBI, GenBI Cirebon, beasiswa Bank Indonesia, atau Bank Indonesia. 
+        
+        Jika RELEVAN: Jawab pertanyaan secara ringkas dan informatif, lalu berikan 3 saran pertanyaan lanjutan yang relevan (maksimal 5 kata per saran).
+        
+        Jika TIDAK RELEVAN: Tolak dengan sopan dan jelaskan bahwa Anda hanya membahas topik GenBI, kemudian berikan 3 saran pertanyaan yang relevan dengan GenBI.";
+
             $userInput = $userQuery;
         } else {
-            // Skenario: OpenAI HANYA memberikan SARAN berdasarkan percakapan yang sudah ada
             $conversationContext = "Konteks percakapan saat ini:\n[PENGGUNA]: {$userQuery}\n[ASISTEN]: {$botAnswer}\n\n";
-            $promptAction = "Berdasarkan konteks percakapan di atas, tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang relevan. JANGAN menjawab lagi pertanyaan pengguna. Pastikan saran relevan dengan jawaban asisten.";
-            // User input bisa disederhanakan karena konteks utama ada di system prompt
-            $userInput = "Berikan saran pertanyaan lanjutan.";
+            $promptAction = "Berdasarkan konteks percakapan di atas, berikan 3 saran pertanyaan lanjutan yang relevan dengan topik GenBI/beasiswa BI. JANGAN menjawab lagi pertanyaan pengguna.";
+            $userInput = "Berikan saran pertanyaan lanjutan seputar GenBI.";
         }
 
         $contextInjection = $externalContext
-            ? "Gunakan informasi tambahan berikut untuk menjawab pertanyaan pengguna secara akurat:\n---INFO TAMBAHAN---\n{$externalContext}\n-------------------\n"
+            ? "Gunakan informasi tambahan berikut untuk menjawab pertanyaan pengguna secara akurat:\n---INFO GENBI/BI---\n{$externalContext}\n-------------------\n"
             : "";
 
-        $systemPrompt = "{$siteContext} {$conversationContext} {$contextInjection} {$promptAction} Format respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. Jika hanya diminta saran, isi field 'answer' dengan string kosong.";
+        $systemPrompt = "{$siteContext}\n\n{$conversationContext}{$contextInjection}\n\n{$promptAction}\n\nFormat respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. 
+
+    Jika hanya diminta saran, isi field 'answer' dengan string kosong. 
+    Pastikan semua saran pertanyaan berkaitan dengan GenBI, beasiswa BI, atau Bank Indonesia.";
 
         try {
             $response = Http::timeout(45)->withHeaders([
                 'Authorization' => 'Bearer ' . $apiKey,
                 'Content-Type' => 'application/json',
                 'HTTP-Referer' => request()->getSchemeAndHttpHost(),
-                'X-Title' => 'Genbi Cirebon Chatbot',
+                'X-Title' => 'GenBI Cirebon Smart Assistant',
             ])->post('https://openrouter.ai/api/v1/chat/completions', [
                 "model" => "openai/gpt-3.5-turbo",
                 "messages" => [
                     ["role" => "system", "content" => $systemPrompt],
-                    ["role" => "user", "content" => $userInput] // Menggunakan $userInput yang sudah disesuaikan
+                    ["role" => "user", "content" => $userInput]
                 ],
                 "response_format" => ["type" => "json_object"],
-                "temperature" => 0.4,
-                "max_tokens" => 500,
+                "temperature" => 0.3, // Lebih rendah untuk konsistensi
+                "max_tokens" => 600, // Sedikit lebih banyak untuk penjelasan penolakan
             ]);
 
             if ($response->successful()) {
                 $content = $response->json()['choices'][0]['message']['content'];
                 $data = json_decode($content, true);
 
-                // Fallback jika JSON tidak valid
+                // Validasi JSON dan struktur data
                 if (json_last_error() !== JSON_ERROR_NONE) {
                     Log::error('OpenAI Fallback JSON Decode Error: ' . json_last_error_msg() . ' | Content: ' . $content);
-                    return ['answer' => 'Maaf, terjadi sedikit kesalahan format. Silakan coba lagi.', 'suggestions' => []];
+                    return [
+                        'answer' => 'Maaf, terjadi kesalahan format respons. Silakan coba lagi dengan pertanyaan seputar GenBI.',
+                        'suggestions' => [
+                            'Apa itu GenBI?',
+                            'Cara daftar beasiswa BI',
+                            'Program GenBI Cirebon'
+                        ]
+                    ];
+                }
+
+                // Pastikan suggestions berisi array dan relevan
+                $suggestions = $data['suggestions'] ?? [];
+                if (empty($suggestions) || !is_array($suggestions)) {
+                    $suggestions = [
+                        'Kegiatan GenBI Cirebon',
+                        'Syarat beasiswa BI',
+                        'Manfaat bergabung GenBI'
+                    ];
                 }
 
                 return [
-                    'answer' => $data['answer'] ?? ($generateFullAnswer ? 'Gagal memformat jawaban.' : ''),
-                    'suggestions' => $data['suggestions'] ?? [],
+                    'answer' => $data['answer'] ?? ($generateFullAnswer ? 'Mohon ajukan pertanyaan seputar GenBI atau beasiswa Bank Indonesia.' : ''),
+                    'suggestions' => array_slice($suggestions, 0, 3), // Maksimal 3 saran
                 ];
             }
 
-            Log::error('OpenAI Fallback HTTP Error: ' . $response->body());
-            return ['answer' => 'Maaf, saya sedang mengalami kendala teknis (API).', 'suggestions' => []];
+            Log::error('OpenAI Fallback HTTP Error: ' . $response->status() . ' | ' . $response->body());
+            return [
+                'answer' => 'Maaf, asisten sedang mengalami gangguan. Silakan tanya seputar GenBI atau beasiswa BI.',
+                'suggestions' => [
+                    'Apa itu GenBI?',
+                    'Beasiswa Bank Indonesia',
+                    'Kontak GenBI Cirebon'
+                ]
+            ];
         } catch (\Exception $e) {
             Log::error('OpenAI Fallback Exception: ' . $e->getMessage());
-            return ['answer' => 'Maaf, koneksi ke asisten AI sedang bermasalah.', 'suggestions' => []];
+            return [
+                'answer' => 'Maaf, koneksi bermasalah. Silakan coba lagi dengan pertanyaan tentang GenBI.',
+                'suggestions' => [
+                    'Program GenBI',
+                    'Beasiswa BI 2024',
+                    'GenBI Cirebon info'
+                ]
+            ];
         }
+    }
+
+    /**
+     * Periksa apakah pertanyaan relevan dengan topik GenBI
+     */
+    private function isRelevantToGenBI(string $query): bool
+    {
+        $query = strtolower($query);
+
+        // Kata kunci yang relevan
+        $relevantKeywords = [
+            // GenBI related
+            'genbi',
+            'generasi baru indonesia',
+            'gen bi',
+            'gbi',
+
+            // Bank Indonesia related
+            'bank indonesia',
+            'bi',
+            'bank sentral',
+            'kebijakan moneter',
+
+            // Beasiswa related
+            'beasiswa',
+            'scholarship',
+            'bantuan pendidikan',
+            'bantuan kuliah',
+            'penerima beasiswa',
+            'program beasiswa',
+
+            // GenBI Cirebon specific
+            'cirebon',
+            'genbicirebon.org',
+            'genbi cirebon',
+
+            // Activities & Programs
+            'kegiatan genbi',
+            'program genbi',
+            'komunitas genbi',
+            'anggota genbi',
+            'alumni genbi',
+            'pendaftaran genbi'
+        ];
+
+        // Periksa apakah ada kata kunci yang cocok
+        foreach ($relevantKeywords as $keyword) {
+            if (strpos($query, $keyword) !== false) {
+                return true;
+            }
+        }
+
+        // Kata kunci tidak relevan (untuk memfilter lebih ketat)
+        $irrelevantKeywords = [
+            'cuaca',
+            'weather',
+            'resep',
+            'recipe',
+            'olahraga',
+            'sport',
+            'film',
+            'movie',
+            'musik',
+            'music',
+            'game',
+            'permainan',
+            'politik',
+            'politik',
+            'gosip',
+            'entertainment',
+            'hiburan',
+            'teknologi umum',
+            'programming',
+            'coding',
+            'travel',
+            'wisata'
+        ];
+
+        foreach ($irrelevantKeywords as $irrelevant) {
+            if (strpos($query, $irrelevant) !== false) {
+                return false;
+            }
+        }
+
+        // Jika tidak ada kata kunci yang jelas, kembalikan false untuk keamanan
+        // (lebih baik menolak daripada memberikan jawaban yang tidak relevan)
+        return false;
     }
 
     public function testDialogflow()
