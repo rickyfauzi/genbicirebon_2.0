@@ -206,27 +206,63 @@ class ChatbotController extends Controller
 
             $crawler = new Crawler($response->body());
 
-            $activities = $crawler->filter('.blog-item')->slice(0, 5)->each(function (Crawler $node) {
-                $titleNode = $node->filter('.blog-title a');
+            $activities = $crawler->filter('.card-kegiatan')->slice(0, 5)->each(function (Crawler $node) {
+                $titleNode = $node->filter('.kegiatan-title a');
                 $title = $titleNode->count() ? $titleNode->text('Judul tidak ditemukan') : 'Judul tidak ditemukan';
 
-                $dateNode = $node->filter('.blog-meta span')->first();
+                $dateNode = $node->filter('.date')->first();
+                $date = $dateNode->count() ? $dateNode->text('Tanggal tidak ditemukan') : 'Tanggal tidak ditemukan';
+
+                return "- {$title} (sekitar {$date})";
+            });
+
+            if (empty($activities)) {
+                Log::info('Tidak ada kegiatan ditemukan di halaman kegiatan.');
+                return "Saat ini tidak ada informasi kegiatan terbaru yang bisa ditampilkan dari website.";
+            }
+
+            return "Berikut adalah beberapa kegiatan terbaru dari website genbicirebon.org:\n" . implode("\n", $activities);
+        } catch (\Exception $e) {
+            Log::error('Scraping Error (kegiatan): ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    private function scrapeWebsiteForBlog(): ?string
+    {
+        try {
+            $url = 'https://genbicirebon.org/blog';
+            $response = Http::get($url);
+
+            if (!$response->successful()) {
+                Log::warning("Gagal mengakses {$url}. Status: " . $response->status());
+                return null;
+            }
+
+            $crawler = new Crawler($response->body());
+
+            $blogs = $crawler->filter('.ud-single-blog')->slice(0, 5)->each(function (Crawler $node) {
+                $titleNode = $node->filter('.ud-blog-title a');
+                $title = $titleNode->count() ? $titleNode->text('Judul tidak ditemukan') : 'Judul tidak ditemukan';
+
+                $dateNode = $node->filter('.ud-blog-date')->first();
                 $date = $dateNode->count() ? $dateNode->text('Tanggal tidak ditemukan') : 'Tanggal tidak ditemukan';
 
                 return "- {$title} (dipublikasikan sekitar {$date})";
             });
 
-            if (empty($activities)) {
-                Log::info('Tidak ada item kegiatan yang ditemukan di website menggunakan selector yang ada.');
-                return "Saat ini tidak ada informasi kegiatan terbaru yang bisa ditampilkan dari website.";
+            if (empty($blogs)) {
+                Log::info('Tidak ada artikel blog ditemukan.');
+                return "Saat ini tidak ada berita terbaru yang bisa ditampilkan dari website.";
             }
 
-            return "Berikut adalah beberapa kegiatan atau berita terbaru dari website genbicirebon.org:\n" . implode("\n", $activities);
+            return "Berikut adalah beberapa berita terbaru dari website genbicirebon.org:\n" . implode("\n", $blogs);
         } catch (\Exception $e) {
-            Log::error('Scraping Error: ' . $e->getMessage());
+            Log::error('Scraping Error (blog): ' . $e->getMessage());
             return null;
         }
     }
+
 
     /**
      * Berinteraksi dengan OpenAI untuk mendapatkan jawaban dan/atau saran.
