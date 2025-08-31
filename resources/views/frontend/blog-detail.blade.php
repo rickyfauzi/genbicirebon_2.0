@@ -111,7 +111,7 @@
                     <div class="col-lg-4 col-md-6">
                         <div class="ud-single-blog">
                             <div class="ud-blog-image">
-                                <a href="{{ route('blog.detail', $related_article->id) }}">
+                                <a href="{{ route('blog.detail', $related_article->slug) }}">
                                     <img src="{{ asset('storage/' . $related_article->gambar) }}" alt="blog" />
                                 </a>
                             </div>
@@ -120,7 +120,7 @@
                                     {{ \Carbon\Carbon::parse($related_article->created_at)->format('d F Y') }}
                                 </span>
                                 <h3 class="ud-blog-title">
-                                    <a href="{{ route('blog.detail', $related_article->id) }}">
+                                    <a href="{{ route('blog.detail', $related_article->slug) }}">
                                         {{ $related_article->nama_blog }}
                                     </a>
                                 </h3>
