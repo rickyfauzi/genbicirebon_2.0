@@ -363,14 +363,35 @@ ATURAN PENTING:
         }
     }
 
-    /**
-     * Periksa apakah pertanyaan relevan dengan topik GenBI
-     */
+
     private function isRelevantToGenBI(string $query): bool
     {
-        $query = strtolower($query);
+        $query = strtolower(trim($query));
 
-        // Kata kunci yang relevan
+        // 1. Small talk keywords → selalu dianggap relevan
+        $smallTalk = [
+            'halo',
+            'hai',
+            'hi',
+            'hello',
+            'assalamualaikum',
+            'kamu siapa',
+            'siapa kamu',
+            'kenalan dong',
+            'terima kasih',
+            'thanks',
+            'makasih',
+            'selamat pagi',
+            'selamat siang',
+            'selamat malam'
+        ];
+        foreach ($smallTalk as $talk) {
+            if (strpos($query, $talk) !== false) {
+                return true; // jangan ditolak
+            }
+        }
+
+        // 2. Kata kunci relevan dengan GenBI/BI/beasiswa
         $relevantKeywords = [
             // GenBI related
             'genbi',
@@ -405,15 +426,13 @@ ATURAN PENTING:
             'alumni genbi',
             'pendaftaran genbi'
         ];
-
-        // Periksa apakah ada kata kunci yang cocok
         foreach ($relevantKeywords as $keyword) {
             if (strpos($query, $keyword) !== false) {
                 return true;
             }
         }
 
-        // Kata kunci tidak relevan (untuk memfilter lebih ketat)
+        // 3. Kata kunci tidak relevan (agar lebih tegas)
         $irrelevantKeywords = [
             'cuaca',
             'weather',
@@ -428,7 +447,6 @@ ATURAN PENTING:
             'game',
             'permainan',
             'politik',
-            'politik',
             'gosip',
             'entertainment',
             'hiburan',
@@ -438,17 +456,16 @@ ATURAN PENTING:
             'travel',
             'wisata'
         ];
-
         foreach ($irrelevantKeywords as $irrelevant) {
             if (strpos($query, $irrelevant) !== false) {
                 return false;
             }
         }
 
-        // Jika tidak ada kata kunci yang jelas, kembalikan false untuk keamanan
-        // (lebih baik menolak daripada memberikan jawaban yang tidak relevan)
+        // 4. Default: anggap TIDAK relevan
         return false;
     }
+
 
     public function testDialogflow()
     {
