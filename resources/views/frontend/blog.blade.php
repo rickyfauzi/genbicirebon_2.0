@@ -38,7 +38,7 @@
                     <div class="col-lg-4 col-md-6" data-aos="fade-up" data-aos-duration="1000">
                         <div class="ud-single-blog">
                             <div class="ud-blog-image">
-                                <a href="{{ route('blog.detail', $blog->id) }}">
+                                <a href="{{ route('blog.detail', $blog->slug) }}">
                                     <img src="{{ asset('storage/' . $blog->gambar) }}" alt="blog" />
                                 </a>
                             </div>
@@ -46,7 +46,7 @@
                                 <span
                                     class="ud-blog-date">{{ \Carbon\Carbon::parse($blog->tanggal_blog)->format('d F Y') }}</span>
                                 <h3 class="ud-blog-title">
-                                    <a href="{{ route('blog.detail', $blog->id) }}">
+                                    <a href="{{ route('blog.detail', $blog->slug) }}">
                                         {{ $blog->nama_blog }}
                                     </a>
                                 </h3>

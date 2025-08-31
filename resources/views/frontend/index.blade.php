@@ -144,22 +144,22 @@
                         <div class="col-lg-4 col-md-6" data-aos="fade-up" data-aos-duration="1000">
                             <div class="ud-single-blog">
                                 <div class="ud-blog-image">
-                                    <a href="{{ url('blog-details/' . $blog->id) }}">
+                                    <a href="{{ route('blog.detail', $blog->slug) }}">
                                         <img src="{{ asset('storage/' . $blog->gambar) }}" alt="blog" />
                                     </a>
                                 </div>
                                 <div class="ud-blog-content">
                                     <span class="ud-blog-date">{{ date('d F Y', strtotime($blog->tanggal_blog)) }}</span>
                                     <h3 class="ud-blog-title">
-                                        <a href="{{ url('home/blogd/' . $blog->id) }}">
+                                        <a href="{{ route('blog.detail', $blog->slug) }}">
                                             {{ $blog->nama_blog }}
                                         </a>
                                     </h3>
                                     <p class="ud-blog-desc">
-                                        {{ substr($blog->deskripsi1, 0, 100) }}...
+                                        {{ Str::limit($blog->deskripsi1, 100) }}
                                     </p>
                                     <p class="mt-5 mb-0">
-                                        <a href="{{ url('home/blogd/' . $blog->id) }}">Selengkapnya <i
+                                        <a href="{{ route('blog.detail', $blog->slug) }}">Selengkapnya <i
                                                 class="lni lni-arrow-right"></i></a>
                                     </p>
                                 </div>

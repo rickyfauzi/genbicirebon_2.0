@@ -89,7 +89,7 @@ Route::get('/p-bichamps', [FrontendController::class, 'pBichamps'])->name('p-bic
 Route::get('/kegiatan', [FrontendController::class, 'kegiatan'])->name('kegiatan');
 Route::get('/kegiatan/{slug}', [FrontendController::class, 'kegiatanDetail'])->name('kegiatan.detail');
 Route::get('/blog', [FrontendController::class, 'blog'])->name('blog');
-Route::get('/blog/{id}', [FrontendController::class, 'blogDetail'])->name('blog.detail');
+Route::get('/blog/{slug}', [FrontendController::class, 'blogDetail'])->name('blog.detail');
 Route::get('/tentang-bi', [FrontendController::class, 'tentangBi'])->name('tentang-bi');
 Route::get('/cef', [FrontendController::class, 'cef'])->name('cef');
 Route::get('/login', [FrontendController::class, 'login'])->name('login');

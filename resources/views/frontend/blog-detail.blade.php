@@ -76,7 +76,7 @@
                                         </div>
                                         <div class="ud-article-content">
                                             <h5 class="ud-article-title">
-                                                <a href="{{ route('blog.detail', $article->id) }}">
+                                                <a href="{{ route('blog.detail', $article->slug) }}">
                                                     {{ $article->nama_blog }}
                                                 </a>
                                             </h5>

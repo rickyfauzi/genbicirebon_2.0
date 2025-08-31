@@ -115,14 +115,20 @@ class FrontendController extends Controller
     /**
      * Menampilkan halaman detail blog.
      */
-    public function blogDetail($id)
+    public function blogDetail($slug)
     {
-        $blog = Blog::findOrFail($id);
+        $blog = Blog::where('slug', $slug)->firstOrFail();
+
         $popularArticles = Blog::orderBy('views', 'desc')->take(5)->get();
-        $relatedArticles = Blog::where('id', '!=', $id)->take(3)->get();
+
+        $relatedArticles = Blog::where('id', '!=', $blog->id)
+            ->inRandomOrder()
+            ->take(3)
+            ->get();
 
         return view('frontend.blog-detail', compact('blog', 'popularArticles', 'relatedArticles'));
     }
+
 
     /**
      * Menampilkan halaman tentang BI.
