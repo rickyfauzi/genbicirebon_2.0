@@ -2003,9 +2003,9 @@ div.dataTables_wrapper div.dataTables_length select {
 .header-left .logo.logo-small {
   display: none;
 }
-.header .dropdown-menu > li > a {
+/* .header .dropdown-menu > li > a {
   position: relative;
-}
+} */
 .header .dropdown-toggle:after {
   display: none;
 }

@@ -4,7 +4,7 @@
             <div class="col-lg-12">
                 <nav class="navbar navbar-expand-lg">
                     <a class="logo" href="{{ route('home') }}">
-                        <img src="{{ asset('assets2/images/genbibg.png') }}" alt="Logo" class="logo" />                        
+                        <img src="{{ asset('assets2/images/genbibg.png') }}" alt="Logo" class="logo" />
                     </a>
                     <button class="navbar-toggler">
                         <span class="toggler-icon"> </span>
@@ -70,7 +70,7 @@
 
                     <!-- Tombol "Masuk" pada tampilan dekstop (default) -->
                     <div class="navbar-btn d-none d-lg-inline-block nav-item desktop-login">
-                        <a class="ud-main-btn ud-white-btn" href="{{ route('login')}}">
+                        <a class="ud-main-btn ud-white-btn" href="{{ route('login') }}">
                             Masuk
                         </a>
                     </div>
