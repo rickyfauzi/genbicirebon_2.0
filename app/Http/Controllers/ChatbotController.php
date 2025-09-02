@@ -237,33 +237,82 @@ class ChatbotController extends Controller
      * @param bool $generateFullAnswer Jika true, generate jawaban lengkap + saran. Jika false, HANYA generate saran.
      * @return array ['answer' => string, 'suggestions' => array]
      */
+    /**
+     * Berinteraksi dengan OpenAI untuk mendapatkan jawaban dan/atau saran yang sangat terfokus.
+     *
+     * @param string $userQuery Pertanyaan dari pengguna.
+     * @param string|null $botAnswer Jawaban yang sudah ada dari Dialogflow/Firestore untuk dijadikan konteks saran.
+     * @param string|null $externalContext Konteks tambahan dari scraping website.
+     * @param bool $generateFullAnswer Jika true, generate jawaban lengkap + saran. Jika false, HANYA generate saran.
+     * @return array ['answer' => string, 'suggestions' => array]
+     */
     private function fallbackWithOpenAI(string $userQuery, ?string $botAnswer = null, ?string $externalContext = null, bool $generateFullAnswer = true)
     {
         $apiKey = env('OPENROUTER_API_KEY');
-        $siteContext = "Kamu adalah 'GenBI Assistant', asisten AI yang ramah, informatif, dan ahli tentang GenBI Cirebon (Generasi Baru Indonesia Cirebon), sebuah komunitas penerima beasiswa Bank Indonesia. Website resmi adalah genbicirebon.org. Jawablah semua pertanyaan dalam konteks ini.";
 
-        $siteContext = "Kamu adalah 'GenBI Assistant', asisten AI yang hanya menjawab pertanyaan tentang Generasi Baru Indonesia (GenBI) umum, GenBI Cirebon, beasiswa Bank Indonesia, dan Bank Indonesia. Jika pertanyaan di luar topik ini, katakan: 'Maaf, saya hanya bisa menjawab tentang GenBI dan beasiswa Bank Indonesia.' Website resmi: genbicirebon.org. dan tolong buatkan serelevan mungkin untuk memberikan jawaban yang sopan dan ramah lucu";
+        // --- PROMPT ENGINEERING YANG DISEMPURNAKAN ---
 
+        // 1. Identitas & Mandat Utama yang Sangat Jelas
+        $systemIdentity = "Anda adalah 'GenBI Assistant', sebuah asisten AI yang berdedikasi tinggi. Mandat utama Anda adalah untuk secara EKSKLUSIF melayani pertanyaan seputar Generasi Baru Indonesia (GenBI).";
+
+        // 2. Domain Pengetahuan yang Dibatasi dengan Ketat
+        $knowledgeDomain = "Domain pengetahuan Anda TERBATAS pada topik-topik berikut:\n" .
+            "- Informasi umum tentang GenBI (Generasi Baru Indonesia).\n" .
+            "- Informasi spesifik tentang GenBI Cirebon.\n" .
+            "- Informasi seputar Beasiswa Bank Indonesia.\n" .
+            "- Informasi umum terkait Bank Indonesia yang relevan dengan GenBI.\n" .
+            "- Website resmi adalah genbicirebon.org.";
+
+        // 3. Aturan Keras untuk Pertanyaan di Luar Topik (Zero Tolerance Rule)
+        $offTopicRule = "ATURAN KERAS: Jika ada pertanyaan, sekecil apapun, yang keluar dari domain pengetahuan di atas (misalnya: politik, berita umum, sains, sejarah, selebriti, pertanyaan pribadi, dll.), Anda WAJIB dan HANYA boleh menjawab dengan kalimat persis berikut: 'Maaf, saya hanya diprogram untuk menjawab pertanyaan seputar GenBI, Beasiswa Bank Indonesia, dan hal terkait lainnya. Ada lagi yang bisa saya bantu mengenai GenBI?'\n" .
+            "SANGAT DILARANG untuk mencoba menjawab pertanyaan di luar topik.";
+
+        // 4. Tone atau Nada Bicara
+        $tone = "Gunakan nada bicara yang ramah, profesional, sopan, dan terkadang boleh disisipi sedikit humor ringan jika sesuai. Jawaban harus jelas dan mudah dimengerti.";
+
+        // 5. Contoh (Few-Shot Learning) untuk Melatih AI
+        $examples = "CONTOH INTERAKSI:\n" .
+            "Contoh 1 (Topik Relevan):\n" .
+            "User: 'Apa saja syarat untuk mendaftar beasiswa Bank Indonesia?'\n" .
+            "Expected JSON: {\"answer\": \"Tentu! Syarat umum untuk mendaftar Beasiswa Bank Indonesia biasanya meliputi status sebagai mahasiswa aktif, IPK minimal, serta tidak sedang menerima beasiswa lain. Namun, syarat detail bisa berbeda setiap tahunnya, jadi pastikan untuk cek pengumuman resmi dari universitas atau Bank Indonesia ya!\", \"suggestions\": [\"Kapan beasiswa BI dibuka?\", \"Apa keuntungan jadi anggota GenBI?\", \"Kegiatan GenBI Cirebon apa saja?\"]}\n\n" .
+            "Contoh 2 (Topik Tidak Relevan):\n" .
+            "User: 'Siapa presiden Indonesia sekarang?'\n" .
+            "Expected JSON: {\"answer\": \"Maaf, saya hanya diprogram untuk menjawab pertanyaan seputar GenBI, Beasiswa Bank Indonesia, dan hal terkait lainnya. Ada lagi yang bisa saya bantu mengenai GenBI?\", \"suggestions\": [\"Apa itu GenBI?\", \"Bagaimana cara daftar GenBI?\", \"Apa saja kegiatan GenBI?\"]}";
+
+        // 6. Konteks Dinamis dari Aplikasi
         $conversationContext = "";
         $promptAction = "";
+        $userInput = $userQuery;
 
         if ($generateFullAnswer) {
-            // Skenario: OpenAI harus memberikan JAWABAN LENGKAP + SARAN
-            $promptAction = "Jawab pertanyaan pengguna secara ringkas dan informatif. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan dan sangat singkat (maksimal 5 kata per saran).";
-            $userInput = $userQuery;
+            // Skenario: OpenAI memberikan JAWABAN LENGKAP + SARAN
+            $contextInjection = $externalContext
+                ? "Gunakan informasi tambahan berikut dari website untuk menjawab:\n---INFO TAMBAHAN---\n{$externalContext}\n-------------------\n"
+                : "";
+            $promptAction = "TUGAS ANDA SEKARANG: Berdasarkan pertanyaan pengguna, berikan jawaban yang informatif dan relevan sesuai aturan di atas. Setelah itu, berikan 3 saran pertanyaan lanjutan yang relevan dan singkat (maksimal 5 kata per saran).";
         } else {
-            // Skenario: OpenAI HANYA memberikan SARAN berdasarkan percakapan yang sudah ada
+            // Skenario: OpenAI HANYA memberikan SARAN
+            $contextInjection = ""; // Tidak perlu info eksternal jika hanya membuat saran
             $conversationContext = "Konteks percakapan saat ini:\n[PENGGUNA]: {$userQuery}\n[ASISTEN]: {$botAnswer}\n\n";
-            $promptAction = "Berdasarkan konteks percakapan di atas, tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang relevan. JANGAN menjawab lagi pertanyaan pengguna. Pastikan saran relevan dengan jawaban asisten.";
-            // User input bisa disederhanakan karena konteks utama ada di system prompt
-            $userInput = "Berikan saran pertanyaan lanjutan.";
+            $promptAction = "TUGAS ANDA SEKARANG: Berdasarkan konteks percakapan di atas, tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang paling relevan. JANGAN menjawab lagi pertanyaan pengguna. Pastikan saran relevan dengan JAWABAN ASISTEN.";
+            $userInput = "Berikan 3 saran pertanyaan lanjutan yang relevan."; // Sederhanakan input untuk tugas ini
         }
 
-        $contextInjection = $externalContext
-            ? "Gunakan informasi tambahan berikut untuk menjawab pertanyaan pengguna secara akurat:\n---INFO TAMBAHAN---\n{$externalContext}\n-------------------\n"
-            : "";
+        // 7. Format Output yang Wajib Diikuti
+        $outputFormat = "Format output WAJIB dalam bentuk JSON yang valid seperti ini: {\"answer\": \"(jawaban Anda di sini)\", \"suggestions\": [\"saran 1\", \"saran 2\", \"saran 3\"]}. Jika tugas Anda hanya memberikan saran, isi field 'answer' dengan string kosong \"\".";
 
-        $systemPrompt = "{$siteContext} {$conversationContext} {$contextInjection} {$promptAction} Format respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. Jika hanya diminta saran, isi field 'answer' dengan string kosong.";
+        // Gabungkan semua bagian menjadi satu System Prompt yang kokoh
+        $systemPrompt = implode("\n\n", [
+            $systemIdentity,
+            $knowledgeDomain,
+            $offTopicRule,
+            $tone,
+            $examples,
+            $contextInjection,
+            $conversationContext,
+            $promptAction,
+            $outputFormat
+        ]);
 
         try {
             $response = Http::timeout(45)->withHeaders([
@@ -272,13 +321,15 @@ class ChatbotController extends Controller
                 'HTTP-Referer' => request()->getSchemeAndHttpHost(),
                 'X-Title' => 'Genbi Cirebon Chatbot',
             ])->post('https://openrouter.ai/api/v1/chat/completions', [
+                // Coba model lain jika GPT-3.5 masih kurang patuh.
+                // Model alternatif yang bagus: "anthropic/claude-3-haiku", "google/gemini-flash-1.5", "openai/gpt-4o-mini"
                 "model" => "openai/gpt-3.5-turbo",
                 "messages" => [
                     ["role" => "system", "content" => $systemPrompt],
-                    ["role" => "user", "content" => $userInput] // Menggunakan $userInput yang sudah disesuaikan
+                    ["role" => "user", "content" => $userInput]
                 ],
                 "response_format" => ["type" => "json_object"],
-                "temperature" => 0.4,
+                "temperature" => 0.3, // Turunkan sedikit suhu untuk jawaban yang lebih fokus dan tidak terlalu kreatif
                 "max_tokens" => 500,
             ]);
 
@@ -286,7 +337,6 @@ class ChatbotController extends Controller
                 $content = $response->json()['choices'][0]['message']['content'];
                 $data = json_decode($content, true);
 
-                // Fallback jika JSON tidak valid
                 if (json_last_error() !== JSON_ERROR_NONE) {
                     Log::error('OpenAI Fallback JSON Decode Error: ' . json_last_error_msg() . ' | Content: ' . $content);
                     return ['answer' => 'Maaf, terjadi sedikit kesalahan format. Silakan coba lagi.', 'suggestions' => []];
