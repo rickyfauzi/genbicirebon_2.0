@@ -240,30 +240,72 @@ class ChatbotController extends Controller
     private function fallbackWithOpenAI(string $userQuery, ?string $botAnswer = null, ?string $externalContext = null, bool $generateFullAnswer = true)
     {
         $apiKey = env('OPENROUTER_API_KEY');
-        $siteContext = "Kamu adalah 'GenBI Assistant', asisten AI yang ramah, informatif, dan ahli tentang GenBI Cirebon (Generasi Baru Indonesia Cirebon), sebuah komunitas penerima beasiswa Bank Indonesia. Website resmi adalah genbicirebon.org. Jawablah semua pertanyaan dalam konteks ini.";
 
+        // --- PROMPT ENGINEERING V3 (THE SOCIALLY-AWARE EXPERT) ---
+
+        // 1. Identitas & Persona
+        $systemIdentity = "Anda adalah 'GenBI Assistant', asisten AI yang ramah, komunikatif, dan seorang ahli tentang Generasi Baru Indonesia (GenBI).";
+
+        // 2. Pembagian Kemampuan yang Jelas
+        $knowledgeDomain = "Anda memiliki dua tingkat kemampuan:\n" .
+            "1. Keahlian Utama: Pengetahuan mendalam tentang GenBI (umum dan Cirebon), Beasiswa Bank Indonesia, dan Bank Indonesia. Website rujukan: genbicirebon.org. Ini adalah fokus utama Anda.\n" .
+            "2. Kemampuan Percakapan Sosial: Anda BISA dan HARUS merespons obrolan ringan dan pertanyaan personal (misal: 'halo', 'terima kasih', 'kamu lagi apa?', 'kamu robot?').";
+
+        // 3. Aturan Interaksi Baru: The "Pivot Rule"
+        $interactionRules = "ATURAN INTERAKSI:\n" .
+            // PERUBAHAN KUNCI: Memperkenalkan "The Pivot Rule" untuk obrolan sosial
+            "- Untuk pertanyaan sosial atau obrolan ringan: Jawablah dengan singkat, ramah, dan dalam persona Anda sebagai AI, LALU SEGERA ajukan pertanyaan atau pernyataan untuk mengembalikan percakapan ke topik utama (GenBI).\n" .
+            "- Untuk pertanyaan yang membutuhkan pengetahuan faktual di luar Keahlian Utama Anda (misal: politik, sains, sejarah, gosip): Anda WAJIB menolak dengan sopan menggunakan kalimat persis ini: 'Maaf, saya hanya diprogram untuk menjawab pertanyaan seputar GenBI dan Beasiswa Bank Indonesia. Ada lagi yang bisa saya bantu mengenai GenBI?'";
+
+        // 4. Tone atau Nada Bicara
+        $tone = "Gunakan nada bicara yang bersahabat dan profesional. Buat pengguna merasa nyaman untuk bertanya apa saja seputar GenBI.";
+
+        // 5. Contoh yang Diperbarui untuk Melatih Perilaku Baru
+        $examples = "CONTOH INTERAKSI:\n" .
+            "Contoh 1 (Topik Utama):\n" .
+            "User: 'Apa saja syarat beasiswa Bank Indonesia?'\n" .
+            "Expected JSON: {\"answer\": \"Tentu! Syarat umum untuk mendaftar Beasiswa Bank Indonesia biasanya meliputi status sebagai mahasiswa aktif, IPK minimal, serta tidak sedang menerima beasiswa lain. Syarat detail bisa berbeda setiap tahun, jadi pastikan cek pengumuman resmi ya!\", \"suggestions\": [\"Kapan beasiswa BI dibuka?\", \"Apa keuntungan jadi anggota GenBI?\", \"Kegiatan GenBI Cirebon apa saja?\"]}\n\n" .
+            "Contoh 2 (Faktual Non-Relevan):\n" .
+            "User: 'Siapa presiden Indonesia sekarang?'\n" .
+            "Expected JSON: {\"answer\": \"Maaf, saya hanya diprogram untuk menjawab pertanyaan seputar GenBI dan Beasiswa Bank Indonesia. Ada lagi yang bisa saya bantu mengenai GenBI?\", \"suggestions\": [\"Apa itu GenBI?\", \"Bagaimana cara daftar GenBI?\", \"Apa saja kegiatan GenBI?\"]}\n\n" .
+            // PERUBAHAN KUNCI: Menambahkan contoh untuk Social Chat dengan teknik Pivot
+            "Contoh 3 (Obrolan Sosial):\n" .
+            "User: 'Kamu lagi sibuk apa?'\n" .
+            "Expected JSON: {\"answer\": \"Sebagai asisten AI, saya selalu siap sedia 24/7 untuk membantu! Ngomong-ngomong soal kesibukan, GenBI Cirebon juga punya banyak kegiatan seru lho. Apakah Anda tertarik untuk tahu lebih lanjut?\", \"suggestions\": [\"Apa saja kegiatan GenBI?\", \"Program kerja GenBI Cirebon\", \"Ceritakan tentang GenBI\"]}";
+
+
+        // 6. Konteks Dinamis dan Tugas (Struktur ini tidak perlu diubah)
         $conversationContext = "";
         $promptAction = "";
-
+        $userInput = $userQuery;
         if ($generateFullAnswer) {
-            // Skenario: OpenAI harus memberikan JAWABAN LENGKAP + SARAN
-            $promptAction = "Jawab pertanyaan pengguna secara ringkas dan informatif. Setelah menjawab, berikan 3 saran pertanyaan lanjutan yang relevan dan sangat singkat (maksimal 5 kata per saran).";
-            $userInput = $userQuery;
+            $contextInjection = $externalContext ? "Gunakan informasi tambahan berikut dari website untuk menjawab:\n---INFO TAMBAHAN---\n{$externalContext}\n-------------------\n" : "";
+            $promptAction = "TUGAS ANDA SEKARANG: Berdasarkan pertanyaan pengguna, berikan jawaban yang informatif dan relevan sesuai ATURAN INTERAKSI di atas. Setelah itu, berikan 3 saran pertanyaan lanjutan yang relevan.";
         } else {
-            // Skenario: OpenAI HANYA memberikan SARAN berdasarkan percakapan yang sudah ada
+            $contextInjection = "";
             $conversationContext = "Konteks percakapan saat ini:\n[PENGGUNA]: {$userQuery}\n[ASISTEN]: {$botAnswer}\n\n";
-            $promptAction = "Berdasarkan konteks percakapan di atas, tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang relevan. JANGAN menjawab lagi pertanyaan pengguna. Pastikan saran relevan dengan jawaban asisten.";
-            // User input bisa disederhanakan karena konteks utama ada di system prompt
-            $userInput = "Berikan saran pertanyaan lanjutan.";
+            $promptAction = "TUGAS ANDA SEKARANG: Berdasarkan konteks percakapan di atas, tugasmu HANYA memberikan 3 saran pertanyaan lanjutan yang paling relevan. JANGAN menjawab lagi pertanyaan pengguna.";
+            $userInput = "Berikan 3 saran pertanyaan lanjutan yang relevan.";
         }
 
-        $contextInjection = $externalContext
-            ? "Gunakan informasi tambahan berikut untuk menjawab pertanyaan pengguna secara akurat:\n---INFO TAMBAHAN---\n{$externalContext}\n-------------------\n"
-            : "";
+        // 7. Format Output yang Wajib Diikuti
+        $outputFormat = "Format output WAJIB dalam bentuk JSON yang valid seperti ini: {\"answer\": \"(jawaban Anda di sini)\", \"suggestions\": [\"saran 1\", \"saran 2\", \"saran 3\"]}. Jika tugas Anda hanya memberikan saran, isi field 'answer' dengan string kosong \"\".";
 
-        $systemPrompt = "{$siteContext} {$conversationContext} {$contextInjection} {$promptAction} Format respons HANYA dalam bentuk JSON valid seperti ini: {\"answer\": \"Jawabanmu di sini.\", \"suggestions\": [\"Saran 1\", \"Saran 2\", \"Saran 3\"]}. Jika hanya diminta saran, isi field 'answer' dengan string kosong.";
+        // Gabungkan semua bagian prompt
+        $systemPrompt = implode("\n\n", [
+            $systemIdentity,
+            $knowledgeDomain,
+            $interactionRules,
+            $tone,
+            $examples,
+            $contextInjection,
+            $conversationContext,
+            $promptAction,
+            $outputFormat
+        ]);
 
         try {
+            // ... (sisa dari blok try-catch tetap sama)
             $response = Http::timeout(45)->withHeaders([
                 'Authorization' => 'Bearer ' . $apiKey,
                 'Content-Type' => 'application/json',
@@ -273,10 +315,10 @@ class ChatbotController extends Controller
                 "model" => "openai/gpt-3.5-turbo",
                 "messages" => [
                     ["role" => "system", "content" => $systemPrompt],
-                    ["role" => "user", "content" => $userInput] // Menggunakan $userInput yang sudah disesuaikan
+                    ["role" => "user", "content" => $userInput]
                 ],
                 "response_format" => ["type" => "json_object"],
-                "temperature" => 0.4,
+                "temperature" => 0.5, // Sedikit menaikkan suhu untuk respons sosial yang lebih natural
                 "max_tokens" => 500,
             ]);
 
@@ -284,7 +326,6 @@ class ChatbotController extends Controller
                 $content = $response->json()['choices'][0]['message']['content'];
                 $data = json_decode($content, true);
 
-                // Fallback jika JSON tidak valid
                 if (json_last_error() !== JSON_ERROR_NONE) {
                     Log::error('OpenAI Fallback JSON Decode Error: ' . json_last_error_msg() . ' | Content: ' . $content);
                     return ['answer' => 'Maaf, terjadi sedikit kesalahan format. Silakan coba lagi.', 'suggestions' => []];
