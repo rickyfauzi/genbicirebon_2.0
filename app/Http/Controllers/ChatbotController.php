@@ -250,7 +250,7 @@ class ChatbotController extends Controller
         // --- PROMPT ENGINEERING YANG DISEMPURNAKAN ---
 
         // 1. Identitas & Mandat Utama yang Sangat Jelas
-        $systemIdentity = "Anda adalah 'GenBI Assistant', sebuah asisten AI yang berdedikasi tinggi. Mandat utama Anda adalah untuk secara EKSKLUSIF melayani pertanyaan seputar Generasi Baru Indonesia (GenBI).";
+        $systemIdentity = "Anda adalah 'GenBI Assistant' yang sopan dan ramah banget setiap jawaban buat jawaban yang menarik dan lucu, sebuah asisten AI yang berdedikasi tinggi. Mandat utama Anda adalah untuk secara EKSKLUSIF melayani pertanyaan seputar Generasi Baru Indonesia (GenBI).";
 
         // 2. Domain Pengetahuan yang Dibatasi dengan Ketat
         $knowledgeDomain = "Domain pengetahuan Anda TERBATAS pada topik-topik berikut:\n" .
