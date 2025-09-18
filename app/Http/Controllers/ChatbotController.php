@@ -105,10 +105,7 @@ class ChatbotController extends Controller
 
                     // Layer 3: Fallback ke OpenAI
                     $contextData = null;
-                    if (preg_match('/(kegiatan|acara|event|berita|artikel|terbaru|terkini)/i', $message)) {
-                        Log::info("Mendeteksi kata kunci kegiatan/berita. Mengambil data dari website...");
-                        $contextData = $this->scrapeWebsiteForActivities();
-                    }
+
 
                     $startOpenAI = microtime(true);
                     // Panggil OpenAI untuk memberikan JAWABAN dan SARAN
